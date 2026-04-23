@@ -188,4 +188,4 @@ MIT License — brug frit, men del forbedringer gerne tilbage.
 - Hershey Fonts
 - Custom single-stroke block font
 
-*Bygget til Lås.dk — låsesmedevirksomhed med Vision Phoenix gravemaskiner*
+*Bygget til bla. låsesmedevirksomheder med Vision Phoenix gravemaskiner*
