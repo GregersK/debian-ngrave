@@ -113,26 +113,30 @@ def byg_batch(jobs, tmpl):
     oz  = float(tmpl.get('offset_z') or 0)
     zo  += oz
 
-    def juster_x(base_x, tekst, justering):
-        _, bredde = get_strokes(tekst, th, font)
+    def juster_x(base_x, tekst, justering, ffont, fth, fafstand):
+        _, bredde = get_strokes(tekst, fth, ffont, fafstand)
         if justering == 'hoejre':   return base_x + zw - bredde
         elif justering == 'center': return base_x + (zw - bredde) / 2
         return base_x
 
-    # Saml aktive felter med per-felt font og hoejde
+    # Saml aktive felter med per-felt font, hoejde og bogstav-afstand
     felter = []
     if tmpl.get('markering_aktiv', 1):
         felter.append(('type_felt', tmpl.get('markering_x',0), tmpl.get('markering_y',0), tmpl.get('markering_justering','venstre'),
-                       tmpl.get('markering_font') or font, float(tmpl.get('markering_hoejde_mm') or 0) or th))
+                       tmpl.get('markering_font') or font, float(tmpl.get('markering_hoejde_mm') or 0) or th,
+                       float(tmpl.get('markering_bogstav_afstand_mm') or 0)))
     if tmpl.get('system_aktiv', 1):
         felter.append(('system_nr', tmpl.get('system_x',0), tmpl.get('system_y',5), tmpl.get('system_justering','venstre'),
-                       tmpl.get('system_font') or font, float(tmpl.get('system_hoejde_mm') or 0) or th))
+                       tmpl.get('system_font') or font, float(tmpl.get('system_hoejde_mm') or 0) or th,
+                       float(tmpl.get('system_bogstav_afstand_mm') or 0)))
     if tmpl.get('loebe_aktiv', 1):
         felter.append(('loebe_nr', tmpl.get('loebe_x',0), tmpl.get('loebe_y',0), tmpl.get('loebe_justering','hoejre'),
-                       tmpl.get('loebe_font') or font, float(tmpl.get('loebe_hoejde_mm') or 0) or th))
+                       tmpl.get('loebe_font') or font, float(tmpl.get('loebe_hoejde_mm') or 0) or th,
+                       float(tmpl.get('loebe_bogstav_afstand_mm') or 0)))
     if tmpl.get('ekstra_aktiv', 0):
         felter.append(('ekstra_tekst', tmpl.get('ekstra_x',0), tmpl.get('ekstra_y',10), tmpl.get('ekstra_justering','venstre'),
-                       tmpl.get('ekstra_font') or font, float(tmpl.get('ekstra_hoejde_mm') or 0) or th))
+                       tmpl.get('ekstra_font') or font, float(tmpl.get('ekstra_hoejde_mm') or 0) or th,
+                       float(tmpl.get('ekstra_bogstav_afstand_mm') or 0)))
 
     lines = ["M24","G28 Z0","G20","G90",f"M3 S{rpm}"]
 
@@ -140,15 +144,12 @@ def byg_batch(jobs, tmpl):
         sx = job['slot_x_mm'] + ox
         sy = job['slot_y_mm'] + oy
 
-        for felt_navn, fx, fy, fjus, ffont, fth in felter:
+        for felt_navn, fx, fy, fjus, ffont, fth, fafstand in felter:
             tekst = job.get(felt_navn, '') or ''
             if not tekst.strip():
                 continue
-            strokes, _ = get_strokes(tekst, fth, ffont)
-            _, bredde = get_strokes(tekst, fth, ffont)
-            if fjus == 'hoejre':   x = sx + float(fx) + zw - bredde
-            elif fjus == 'center': x = sx + float(fx) + (zw - bredde) / 2
-            else:                  x = sx + float(fx)
+            strokes, bredde = get_strokes(tekst, fth, ffont, fafstand)
+            x = juster_x(sx + float(fx), tekst, fjus, ffont, fth, fafstand)
             y = sy + float(fy)
             lines += streger_til_gcode(strokes, x, y, f, fz, zo, po)
 
