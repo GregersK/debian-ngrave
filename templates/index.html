@@ -1169,8 +1169,8 @@ async function redigerTemplate(id) {
   document.getElementById('t-loebe-hoejde').value = tmpl.loebe_hoejde_mm || '';
   document.getElementById('t-ekstra-aktiv').checked = !!tmpl.ekstra_aktiv;
   document.getElementById('t-ekstra-navn').value = tmpl.ekstra_navn || 'Ekstra';
-  document.getElementById('t-ekstra-x').value = tmpl.ekstra_x || 0;
-  document.getElementById('t-ekstra-y').value = tmpl.ekstra_y || 10;
+  document.getElementById('t-ekstra-x').value = tmpl.ekstra_x ?? 0;
+  document.getElementById('t-ekstra-y').value = tmpl.ekstra_y ?? 10;
   document.getElementById('t-ekstra-jus').value = tmpl.ekstra_justering || 'venstre';
   document.getElementById('t-ekstra-font').value = tmpl.ekstra_font || '';
   document.getElementById('t-ekstra-hoejde').value = tmpl.ekstra_hoejde_mm || '';
@@ -1358,8 +1358,8 @@ async function kopierTemplate(id) {
   document.getElementById('t-loebe-hoejde').value = tmpl.loebe_hoejde_mm || '';
   document.getElementById('t-ekstra-aktiv').checked = !!tmpl.ekstra_aktiv;
   document.getElementById('t-ekstra-navn').value = tmpl.ekstra_navn || 'Ekstra';
-  document.getElementById('t-ekstra-x').value = tmpl.ekstra_x || 0;
-  document.getElementById('t-ekstra-y').value = tmpl.ekstra_y || 10;
+  document.getElementById('t-ekstra-x').value = tmpl.ekstra_x ?? 0;
+  document.getElementById('t-ekstra-y').value = tmpl.ekstra_y ?? 10;
   document.getElementById('t-ekstra-jus').value = tmpl.ekstra_justering || 'venstre';
   document.getElementById('t-ekstra-font').value = tmpl.ekstra_font || '';
   document.getElementById('t-ekstra-hoejde').value = tmpl.ekstra_hoejde_mm || '';
