@@ -1,0 +1,32 @@
+# nGrave .gitignore
+
+# Database — indeholder kundedata og maskin-konfiguration
+*.db
+*.db-shm
+*.db-wal
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# Backup filer fra editor
+*.backup
+*.bak
+*.bak2
+*_backup.*
+*_v3_backup.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+journalctl*
+
+# Temp
+/tmp/
