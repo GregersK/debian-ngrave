@@ -1,6 +1,6 @@
 # nGrave
 
-**Gravesystem til Vision Phoenix CNC-gravemaskiner (S5/S3)**
+**Gravesystem til alle G-CODE og CIPHER CEF maskiner**
 
 Webbaseret system til nøgle- og skiltegravering med live jobkø, batch-håndtering og automatisk G-code/CIPHER CEF generering.
 
