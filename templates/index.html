@@ -138,6 +138,8 @@ tr:hover td { background: var(--hover); }
     <div id="jobkoe-noegler" class="tab-content aktiv">
       <div class="gap" style="margin-bottom:12px;">
         <button class="btn btn-secondary" onclick="hentBatches()">Opdater</button>
+        <button class="btn btn-secondary" onclick="location.reload()" style="margin-left:4px;">↺ Genindlæs side</button>
+        <button class="btn btn-danger" onclick="annullerAlle()" style="margin-left:8px;">✕ Annuller alle</button>
         <button class="btn btn-danger" onclick="rydOpJobkoe('noegler')" style="margin-left:auto;">🗑️ Ryd op i færdige jobs</button>
       </div>
       <table>
@@ -622,7 +624,8 @@ function skift(panel) {
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('aktiv'));
   document.getElementById('panel-' + panel).classList.add('aktiv');
   event.target.classList.add('aktiv');
-  if (panel === 'jobkoe')           hentBatches();
+  if (panel === 'jobkoe')  { hentBatches(); _startAutoRefresh(); }
+  else                     { _stopAutoRefresh(); }
   if (panel === 'skilte')           { initSkilt(); }
   if (panel === 'templates')        hentTemplates();
   if (panel === 'skilt-templates')  hentSkiltTemplates();
@@ -780,22 +783,46 @@ async function hentSkilteKoe() {
   }).join('');
 }
 
+let _refreshTimer = null;
+
+function _startAutoRefresh() {
+  _stopAutoRefresh();
+  _refreshTimer = setInterval(() => {
+    if (document.getElementById('panel-jobkoe').classList.contains('aktiv')) hentBatches();
+  }, 15000);
+}
+function _stopAutoRefresh() {
+  if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+}
+
 async function hentBatches() {
-  const rows = await api('/api/batches');
-  document.getElementById('batch-tabel').innerHTML = rows.map(r => `
-    <tr>
-      <td>#${r.id}</td><td>${r.navn}</td><td>${r.template_navn}</td><td>${r.maskine_navn}</td>
-      <td>${r.type_felt}</td><td>${r.system_nr}</td><td>${r.loebe_fra}–${r.loebe_til}</td>
-      <td><span class="badge badge-${r.status}">${r.status}</span></td>
-      <td class="gap">
-        ${r.status==='pending'||r.status==='on-hold'?`<button class="btn btn-danger" onclick="annuller(${r.id})" style="padding:4px 10px;font-size:0.8rem">Annuller</button>`:''}
-        ${r.status==='on-hold'?`<button class="btn btn-primary" onclick="frigiv(${r.id})" style="padding:4px 10px;font-size:0.8rem">▶ Frigiv</button>`:''}
-      </td>
-    </tr>`).join('');
+  const tbody = document.getElementById('batch-tabel');
+  try {
+    const rows = await api('/api/batches');
+    tbody.innerHTML = rows.length === 0
+      ? '<tr><td colspan="9" style="text-align:center;color:var(--text-secondary);">Ingen jobs i køen</td></tr>'
+      : rows.map(r => `
+        <tr>
+          <td>#${r.id}</td><td>${r.navn}</td><td>${r.template_navn}</td><td>${r.maskine_navn}</td>
+          <td>${r.type_felt}</td><td>${r.system_nr}</td><td>${r.loebe_fra}–${r.loebe_til}</td>
+          <td><span class="badge badge-${r.status}">${r.status}</span></td>
+          <td class="gap">
+            ${r.status==='pending'||r.status==='on-hold'?`<button class="btn btn-danger" onclick="annuller(${r.id})" style="padding:4px 10px;font-size:0.8rem">Annuller</button>`:''}
+            ${r.status==='on-hold'?`<button class="btn btn-primary" onclick="frigiv(${r.id})" style="padding:4px 10px;font-size:0.8rem">▶ Frigiv</button>`:''}
+          </td>
+        </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="9" style="color:var(--accent);text-align:center;">Fejl ved indlæsning — <a href="#" onclick="hentBatches();return false;">prøv igen</a></td></tr>`;
+  }
 }
 
 async function frigiv(id) { await api(`/api/batches/${id}/frigiv`, 'POST'); hentBatches(); }
-async function annuller(id) { await api(`/api/batches/${id}/annuller`, 'POST'); hentBatches(); }
+async function annuller(id) { if (!confirm('Annuller dette job?')) return; await api(`/api/batches/${id}/annuller`, 'POST'); hentBatches(); }
+async function annullerAlle() {
+  if (!confirm('Annuller ALLE ventende og on-hold jobs?')) return;
+  const res = await api('/api/jobkoe/annuller-alle', 'POST');
+  if (res.ok) hentBatches();
+}
 
 async function rydOpJobkoe(type) {
   if (!confirm('Slet alle færdige (done) og fejlede (fejl) jobs?')) return;
@@ -1725,6 +1752,7 @@ async function gemKalibrering() {
   await initDropdowns();
   opdaterJobFelter();
   initSkilt();
+  hentBatches();
 })();
 </script>
 </body>
