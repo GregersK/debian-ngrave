@@ -301,6 +301,7 @@ tr:hover td { background: var(--hover); }
             <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
               <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="t-mark-aktiv" checked onchange="opdaterPreview()"> <span style="color:#3498db;font-weight:600;">📍 Felt 1</span></label>
               <input id="t-mark-navn" value="Markering" style="flex:1;" onchange="opdaterPreview()">
+              <label style="font-size:0.75rem;color:var(--text-secondary);margin:0;white-space:nowrap;">Pos: <input id="t-mark-pos" type="number" min="1" max="4" value="1" style="width:38px;padding:2px 4px;"></label>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1.5fr 1.5fr 1fr;gap:8px;">
               <div><label>X (mm)</label><input id="t-mark-x" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
@@ -334,6 +335,7 @@ tr:hover td { background: var(--hover); }
             <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
               <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="t-sys-aktiv" checked onchange="opdaterPreview()"> <span style="color:#27ae60;font-weight:600;">🔢 Felt 2</span></label>
               <input id="t-sys-navn" value="System nr" style="flex:1;" onchange="opdaterPreview()">
+              <label style="font-size:0.75rem;color:var(--text-secondary);margin:0;white-space:nowrap;">Pos: <input id="t-sys-pos" type="number" min="1" max="4" value="2" style="width:38px;padding:2px 4px;"></label>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1.5fr 1.5fr 1fr;gap:8px;">
               <div><label>X (mm)</label><input id="t-sys-x" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
@@ -367,6 +369,7 @@ tr:hover td { background: var(--hover); }
             <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
               <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="t-loebe-aktiv" checked onchange="opdaterPreview()"> <span style="color:#f39c12;font-weight:600;">🔖 Felt 3 (auto-løbenr)</span></label>
               <input id="t-loebe-navn" value="Løbenr" style="flex:1;" onchange="opdaterPreview()">
+              <label style="font-size:0.75rem;color:var(--text-secondary);margin:0;white-space:nowrap;">Pos: <input id="t-loebe-pos" type="number" min="1" max="4" value="3" style="width:38px;padding:2px 4px;"></label>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1.5fr 1.5fr 1fr;gap:8px;">
               <div><label>X (mm)</label><input id="t-loebe-x" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
@@ -394,6 +397,19 @@ tr:hover td { background: var(--hover); }
               </select></div>
               <div><label>Størrelse (mm)</label><input id="t-loebe-hoejde" type="number" value="" step="0.1" placeholder="Fælles" onchange="opdaterPreview()"></div>
             </div>
+            <div style="display:flex;gap:16px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+              <label style="font-size:0.8rem;display:flex;align-items:center;gap:6px;margin:0;">
+                Min. ciffer: <select id="t-loebe-min" style="width:60px;">
+                  <option value="0">Auto</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5">5</option>
+                </select>
+              </label>
+              <label style="font-size:0.8rem;display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="t-loebe-prefix-aktiv"> Vis prefix-felt på job</label>
+              <label style="font-size:0.8rem;display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="t-loebe-suffix-aktiv"> Vis suffix-felt på job</label>
+            </div>
             <p style="font-size:0.7rem;color:var(--text-secondary);margin-top:6px;">Tæller automatisk fra Løbenr fra → Løbenr til ved job-oprettelse</p>
           </div>
 
@@ -401,6 +417,7 @@ tr:hover td { background: var(--hover); }
             <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
               <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="t-ekstra-aktiv" onchange="opdaterPreview()"> <span style="color:#9b59b6;font-weight:600;">✨ Felt 4</span></label>
               <input id="t-ekstra-navn" value="Ekstra" style="flex:1;" onchange="opdaterPreview()">
+              <label style="font-size:0.75rem;color:var(--text-secondary);margin:0;white-space:nowrap;">Pos: <input id="t-ekstra-pos" type="number" min="1" max="4" value="4" style="width:38px;padding:2px 4px;"></label>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1.5fr 1.5fr 1fr;gap:8px;">
               <div><label>X (mm)</label><input id="t-ekstra-x" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
@@ -685,23 +702,22 @@ function opdaterJobFelter() {
   const container = document.getElementById('job-felter-container');
   if (!tmpl) { container.innerHTML = ''; return; }
 
-  let html = '';
-  if (tmpl.markering_aktiv) {
-    html += `<div><label>${tmpl.markering_navn||'Markering'}</label><input id="job-type" placeholder=""></div>`;
-  }
-  if (tmpl.system_aktiv) {
-    html += `<div><label>${tmpl.system_navn||'System nr'}</label><input id="job-system" placeholder=""></div>`;
-  }
-  if (tmpl.ekstra_aktiv) {
-    html += `<div><label>${tmpl.ekstra_navn||'Ekstra'}</label><input id="job-ekstra" placeholder=""></div>`;
-  }
-  if (tmpl.loebe_aktiv) {
-    html += `<div><label>${tmpl.loebe_navn||'Løbenr'} fra</label><input id="job-fra" type="number" value="1" min="1"></div>`;
-    html += `<div><label>${tmpl.loebe_navn||'Løbenr'} til</label><input id="job-til" type="number" value="20" min="1"></div>`;
-  } else {
-    html += `<div><label>Antal emner</label><input id="job-antal" type="number" value="1" min="1"></div>`;
-  }
-  container.innerHTML = html;
+  // Sorter felterne efter position sat i template
+  const feltDefs = [
+    { pos: tmpl.markering_position||1, render: () => tmpl.markering_aktiv ? `<div><label>${tmpl.markering_navn||'Markering'}</label><input id="job-type" placeholder=""></div>` : '' },
+    { pos: tmpl.system_position||2,    render: () => tmpl.system_aktiv    ? `<div><label>${tmpl.system_navn||'System nr'}</label><input id="job-system" placeholder=""></div>` : '' },
+    { pos: tmpl.ekstra_position||4,    render: () => tmpl.ekstra_aktiv    ? `<div><label>${tmpl.ekstra_navn||'Ekstra'}</label><input id="job-ekstra" placeholder=""></div>` : '' },
+    { pos: tmpl.loebe_position||3, render: () => {
+      if (!tmpl.loebe_aktiv) return `<div><label>Antal emner</label><input id="job-antal" type="number" value="1" min="1"></div>`;
+      let h = `<div><label>${tmpl.loebe_navn||'Løbenr'} fra</label><input id="job-fra" type="number" value="1" min="1"></div>`;
+      h    += `<div><label>${tmpl.loebe_navn||'Løbenr'} til</label><input id="job-til" type="number" value="20" min="1"></div>`;
+      if (tmpl.loebe_prefix_aktiv) h += `<div><label>Prefix</label><input id="job-prefix" placeholder="f.eks. S" style="width:80px;"></div>`;
+      if (tmpl.loebe_suffix_aktiv) h += `<div><label>Suffix</label><input id="job-suffix" placeholder="" style="width:80px;"></div>`;
+      return h;
+    }},
+  ].sort((a, b) => a.pos - b.pos);
+
+  container.innerHTML = feltDefs.map(f => f.render()).join('');
 }
 
 // ─── Nyt job ──────────────────────────────────────────────────────────────────
@@ -724,9 +740,11 @@ async function sendJob() {
     type_felt:   getVal('job-type').toUpperCase(),
     system_nr:   getVal('job-system').toUpperCase(),
     ekstra_tekst: getVal('job-ekstra').toUpperCase(),
-    loebe_fra:   getNum('job-fra', 1),
-    loebe_til:   getNum('job-til', 1),
-    antal:       getNum('job-antal', 1),
+    loebe_fra:    getNum('job-fra', 1),
+    loebe_til:    getNum('job-til', 1),
+    loebe_prefix: getVal('job-prefix'),
+    loebe_suffix: getVal('job-suffix'),
+    antal:        getNum('job-antal', 1),
     navn:        getVal('job-navn') || null,
     start_slot:  getNum('job-startslot', 1) || 1,
   });
@@ -1167,6 +1185,13 @@ async function redigerTemplate(id) {
   document.getElementById('t-loebe-jus').value = tmpl.loebe_justering || 'hoejre';
   document.getElementById('t-loebe-font').value = tmpl.loebe_font || '';
   document.getElementById('t-loebe-hoejde').value = tmpl.loebe_hoejde_mm || '';
+  document.getElementById('t-loebe-min').value = tmpl.loebe_min_laengde || 0;
+  document.getElementById('t-loebe-prefix-aktiv').checked = !!tmpl.loebe_prefix_aktiv;
+  document.getElementById('t-loebe-suffix-aktiv').checked = !!tmpl.loebe_suffix_aktiv;
+  document.getElementById('t-mark-pos').value = tmpl.markering_position || 1;
+  document.getElementById('t-sys-pos').value = tmpl.system_position || 2;
+  document.getElementById('t-loebe-pos').value = tmpl.loebe_position || 3;
+  document.getElementById('t-ekstra-pos').value = tmpl.ekstra_position || 4;
   document.getElementById('t-ekstra-aktiv').checked = !!tmpl.ekstra_aktiv;
   document.getElementById('t-ekstra-navn').value = tmpl.ekstra_navn || 'Ekstra';
   document.getElementById('t-ekstra-x').value = tmpl.ekstra_x ?? 0;
@@ -1276,6 +1301,13 @@ async function gemTemplate() {
       loebe_justering: document.getElementById('t-loebe-jus') ? document.getElementById('t-loebe-jus').value : 'hoejre',
       loebe_font: document.getElementById('t-loebe-font') ? (document.getElementById('t-loebe-font').value || null) : null,
       loebe_hoejde_mm: document.getElementById('t-loebe-hoejde') ? (+document.getElementById('t-loebe-hoejde').value || 0) : 0,
+      loebe_min_laengde: document.getElementById('t-loebe-min') ? +document.getElementById('t-loebe-min').value : 0,
+      loebe_prefix_aktiv: document.getElementById('t-loebe-prefix-aktiv') ? (document.getElementById('t-loebe-prefix-aktiv').checked ? 1 : 0) : 0,
+      loebe_suffix_aktiv: document.getElementById('t-loebe-suffix-aktiv') ? (document.getElementById('t-loebe-suffix-aktiv').checked ? 1 : 0) : 0,
+      markering_position: document.getElementById('t-mark-pos') ? (+document.getElementById('t-mark-pos').value || 1) : 1,
+      system_position:    document.getElementById('t-sys-pos')  ? (+document.getElementById('t-sys-pos').value  || 2) : 2,
+      loebe_position:     document.getElementById('t-loebe-pos')? (+document.getElementById('t-loebe-pos').value|| 3) : 3,
+      ekstra_position:    document.getElementById('t-ekstra-pos')?(+document.getElementById('t-ekstra-pos').value|| 4) : 4,
       ekstra_aktiv: document.getElementById('t-ekstra-aktiv') ? (document.getElementById('t-ekstra-aktiv').checked ? 1 : 0) : 0,
       ekstra_navn:  document.getElementById('t-ekstra-navn') ? document.getElementById('t-ekstra-navn').value : 'Ekstra',
       ekstra_x: document.getElementById('t-ekstra-x') ? +document.getElementById('t-ekstra-x').value : 0,
@@ -1356,6 +1388,13 @@ async function kopierTemplate(id) {
   document.getElementById('t-loebe-jus').value = tmpl.loebe_justering || 'hoejre';
   document.getElementById('t-loebe-font').value = tmpl.loebe_font || '';
   document.getElementById('t-loebe-hoejde').value = tmpl.loebe_hoejde_mm || '';
+  document.getElementById('t-loebe-min').value = tmpl.loebe_min_laengde || 0;
+  document.getElementById('t-loebe-prefix-aktiv').checked = !!tmpl.loebe_prefix_aktiv;
+  document.getElementById('t-loebe-suffix-aktiv').checked = !!tmpl.loebe_suffix_aktiv;
+  document.getElementById('t-mark-pos').value = tmpl.markering_position || 1;
+  document.getElementById('t-sys-pos').value = tmpl.system_position || 2;
+  document.getElementById('t-loebe-pos').value = tmpl.loebe_position || 3;
+  document.getElementById('t-ekstra-pos').value = tmpl.ekstra_position || 4;
   document.getElementById('t-ekstra-aktiv').checked = !!tmpl.ekstra_aktiv;
   document.getElementById('t-ekstra-navn').value = tmpl.ekstra_navn || 'Ekstra';
   document.getElementById('t-ekstra-x').value = tmpl.ekstra_x ?? 0;

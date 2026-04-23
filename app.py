@@ -64,6 +64,15 @@ def migrate_db():
         ("templates",   "system_bogstav_afstand_mm",      "REAL NOT NULL DEFAULT 0.0"),
         ("templates",   "loebe_bogstav_afstand_mm",       "REAL NOT NULL DEFAULT 0.0"),
         ("templates",   "ekstra_bogstav_afstand_mm",      "REAL NOT NULL DEFAULT 0.0"),
+        ("templates",   "loebe_min_laengde",              "INTEGER NOT NULL DEFAULT 0"),
+        ("templates",   "loebe_prefix_aktiv",             "INTEGER NOT NULL DEFAULT 0"),
+        ("templates",   "loebe_suffix_aktiv",             "INTEGER NOT NULL DEFAULT 0"),
+        ("templates",   "markering_position",             "INTEGER NOT NULL DEFAULT 1"),
+        ("templates",   "system_position",                "INTEGER NOT NULL DEFAULT 2"),
+        ("templates",   "loebe_position",                 "INTEGER NOT NULL DEFAULT 3"),
+        ("templates",   "ekstra_position",                "INTEGER NOT NULL DEFAULT 4"),
+        ("job_batches", "loebe_prefix",                   "TEXT NOT NULL DEFAULT ''"),
+        ("job_batches", "loebe_suffix",                   "TEXT NOT NULL DEFAULT ''"),
         ("job_batches", "ekstra_tekst",       "TEXT NOT NULL DEFAULT ''"),
         ("jobs",        "ekstra_tekst",       "TEXT NOT NULL DEFAULT ''"),
         ("skilt_templates","margin_top_mm",   "REAL"),
@@ -218,8 +227,10 @@ def create_template():
                 system_aktiv, system_navn, system_x, system_y, system_justering, system_font, system_hoejde_mm,
                 loebe_aktiv, loebe_navn, loebe_x, loebe_y, loebe_justering, loebe_font, loebe_hoejde_mm,
                 ekstra_aktiv, ekstra_navn, ekstra_x, ekstra_y, ekstra_justering, ekstra_font, ekstra_hoejde_mm,
+                loebe_min_laengde, loebe_prefix_aktiv, loebe_suffix_aktiv,
+                markering_position, system_position, loebe_position, ekstra_position,
                 grid_json, maskine_id
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (d['navn'], d.get('beskrivelse',''), d.get('noejle_type',''),
               d['zone_bredde_mm'], d['zone_hoejde_mm'], d['tekst_hoejde_mm'], d['linje_afstand'],
               d['feed_xy'], d['feed_z'], d['spindle_rpm'], d['z_op_mm'], d['prox_offset_mm'], d.get('font') or 'block',
@@ -231,6 +242,8 @@ def create_template():
               d.get('loebe_x',0), d.get('loebe_y',0), d.get('loebe_justering','hoejre'), d.get('loebe_font') or 'block', d.get('loebe_hoejde_mm',0) or 0,
               int(d.get('ekstra_aktiv', 0)), d.get('ekstra_navn','Ekstra'),
               d.get('ekstra_x',0), d.get('ekstra_y',10), d.get('ekstra_justering','venstre'), d.get('ekstra_font') or 'block', d.get('ekstra_hoejde_mm',0) or 0,
+              int(d.get('loebe_min_laengde', 0)), int(d.get('loebe_prefix_aktiv', 0)), int(d.get('loebe_suffix_aktiv', 0)),
+              int(d.get('markering_position', 1)), int(d.get('system_position', 2)), int(d.get('loebe_position', 3)), int(d.get('ekstra_position', 4)),
               json.dumps(d.get('grid', {"kolonner":0,"raekker":0,"slots":[]})), d.get('maskine_id')))
         db.commit()
         return jsonify({'ok': True, 'id': cur.lastrowid})
@@ -251,6 +264,8 @@ def update_template(id):
                 system_aktiv=?, system_navn=?, system_x=?, system_y=?, system_justering=?, system_font=?, system_hoejde_mm=?,
                 loebe_aktiv=?, loebe_navn=?, loebe_x=?, loebe_y=?, loebe_justering=?, loebe_font=?, loebe_hoejde_mm=?,
                 ekstra_aktiv=?, ekstra_navn=?, ekstra_x=?, ekstra_y=?, ekstra_justering=?, ekstra_font=?, ekstra_hoejde_mm=?,
+                loebe_min_laengde=?, loebe_prefix_aktiv=?, loebe_suffix_aktiv=?,
+                markering_position=?, system_position=?, loebe_position=?, ekstra_position=?,
                 grid_json=?, maskine_id=?
             WHERE id=?
         """, (d['navn'], d.get('beskrivelse',''), d.get('noejle_type',''),
@@ -264,6 +279,8 @@ def update_template(id):
               d.get('loebe_x',0), d.get('loebe_y',0), d.get('loebe_justering','hoejre'), d.get('loebe_font') or 'block', d.get('loebe_hoejde_mm',0) or 0,
               int(d.get('ekstra_aktiv', 0)), d.get('ekstra_navn','Ekstra'),
               d.get('ekstra_x',0), d.get('ekstra_y',10), d.get('ekstra_justering','venstre'), d.get('ekstra_font') or 'block', d.get('ekstra_hoejde_mm',0) or 0,
+              int(d.get('loebe_min_laengde', 0)), int(d.get('loebe_prefix_aktiv', 0)), int(d.get('loebe_suffix_aktiv', 0)),
+              int(d.get('markering_position', 1)), int(d.get('system_position', 2)), int(d.get('loebe_position', 3)), int(d.get('ekstra_position', 4)),
               json.dumps(d.get('grid', {"kolonner":0,"raekker":0,"slots":[]})),
               d.get('maskine_id'), id))
         db.commit()
@@ -390,6 +407,9 @@ def create_batch():
     system_nr    = d.get('system_nr', '') if tmpl['system_aktiv'] else ''
     ekstra_tekst = d.get('ekstra_tekst', '') if tmpl['ekstra_aktiv'] else ''
     loebe_aktiv  = bool(tmpl['loebe_aktiv'])
+    loebe_prefix = d.get('loebe_prefix', '').strip() if tmpl['loebe_prefix_aktiv'] else ''
+    loebe_suffix = d.get('loebe_suffix', '').strip() if tmpl['loebe_suffix_aktiv'] else ''
+    loebe_min    = int(tmpl['loebe_min_laengde'] or 0)
 
     # Hvis løbenr ikke er aktiv, laver vi kun 1 job (ikke per slot)
     if loebe_aktiv:
@@ -424,16 +444,17 @@ def create_batch():
         navn = d.get('navn') or f"{type_felt or system_nr or ekstra_tekst or 'Batch'}_{loebe_cursor}-{batch_end}"
 
         cur = db.execute("""
-            INSERT INTO job_batches (navn, template_id, maskine_id, system_nr, type_felt, ekstra_tekst, loebe_fra, loebe_til, status)
-            VALUES (?,?,?,?,?,?,?,?,?)
-        """, (navn, d['template_id'], d['maskine_id'], system_nr, type_felt, ekstra_tekst, loebe_cursor, batch_end, status))
+            INSERT INTO job_batches (navn, template_id, maskine_id, system_nr, type_felt, ekstra_tekst, loebe_fra, loebe_til, loebe_prefix, loebe_suffix, status)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """, (navn, d['template_id'], d['maskine_id'], system_nr, type_felt, ekstra_tekst, loebe_cursor, batch_end, loebe_prefix, loebe_suffix, status))
         batch_id = cur.lastrowid
 
         for i, slot in enumerate(slots_i_batch):
             loebe = loebe_cursor + i
             if loebe > til:
                 break
-            loebe_str = str(loebe) if loebe_aktiv else ''
+            loebe_num = str(loebe).zfill(loebe_min) if loebe_min > 0 else str(loebe)
+            loebe_str = f"{loebe_prefix}{loebe_num}{loebe_suffix}" if loebe_aktiv else ''
             db.execute("""
                 INSERT INTO jobs (batch_id, slot_nr, slot_x_mm, slot_y_mm, type_felt, loebe_nr, system_nr, ekstra_tekst)
                 VALUES (?,?,?,?,?,?,?,?)
