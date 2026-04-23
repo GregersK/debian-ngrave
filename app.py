@@ -480,6 +480,16 @@ def annuller_batch(id):
     db.commit()
     return jsonify({'ok': True})
 
+@app.route('/api/jobkoe/annuller-alle', methods=['POST'])
+def annuller_alle_batches():
+    db = get_db()
+    batches = db.execute("SELECT id FROM job_batches WHERE status IN ('pending','on-hold')").fetchall()
+    for b in batches:
+        db.execute("DELETE FROM jobs WHERE batch_id=?", (b['id'],))
+    cur = db.execute("DELETE FROM job_batches WHERE status IN ('pending','on-hold')")
+    db.commit()
+    return jsonify({'ok': True, 'annulleret': cur.rowcount})
+
 @app.route('/api/jobkoe/ryd-op', methods=['POST'])
 def ryd_op_jobkoe():
     """Slet alle færdige/fejlede jobs fra jobkøen."""
