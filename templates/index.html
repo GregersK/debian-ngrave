@@ -1,0 +1,1692 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nGrave</title>
+<style>
+:root {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-tertiary: #0f3460;
+  --text-primary: #eee;
+  --text-secondary: #aaa;
+  --border: #0f3460;
+  --accent: #e94560;
+  --hover: #1e2d50;
+}
+
+[data-theme="light"] {
+  --bg-primary: #f5f5f5;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #e0e0e0;
+  --text-primary: #2c3e50;
+  --text-secondary: #7f8c8d;
+  --border: #d0d0d0;
+  --accent: #e74c3c;
+  --hover: #ecf0f1;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; transition: background 0.3s, color 0.3s; }
+header { background: var(--bg-secondary); padding: 16px 24px; display: flex; align-items: center; gap: 16px; border-bottom: 2px solid var(--border); }
+header h1 { font-size: 1.4rem; color: var(--accent); }
+header .status { margin-left: auto; font-size: 0.85rem; color: var(--text-secondary); }
+.theme-toggle { background: var(--bg-tertiary); border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; color: var(--text-primary); font-size: 1.2rem; }
+nav { display: flex; background: var(--bg-secondary); border-bottom: 1px solid var(--border); }
+nav button { background: none; border: none; color: var(--text-secondary); padding: 12px 20px; cursor: pointer; font-size: 0.95rem; border-bottom: 3px solid transparent; }
+nav button.aktiv { color: var(--accent); border-bottom-color: var(--accent); }
+main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+.panel { display: none; }
+.panel.aktiv { display: block; }
+.kort { background: var(--bg-secondary); border-radius: 8px; padding: 20px; margin-bottom: 16px; border: 1px solid var(--border); }
+.kort h2 { font-size: 1.1rem; margin-bottom: 16px; color: var(--accent); }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.form-section { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.form-section:last-child { border-bottom: none; margin-bottom: 0; }
+.form-section h3 { font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+label { display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px; }
+input, select, textarea { width: 100%; padding: 8px 10px; background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); border-radius: 4px; font-size: 0.95rem; font-family: inherit; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+textarea { resize: vertical; min-height: 60px; }
+.btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.95rem; font-weight: 600; }
+.btn-primary { background: var(--accent); color: white; }
+.btn-secondary { background: var(--bg-tertiary); color: var(--text-primary); }
+.btn-danger { background: #c0392b; color: white; }
+.btn:hover { opacity: 0.85; }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th { text-align: left; padding: 10px; color: var(--text-secondary); border-bottom: 1px solid var(--border); font-weight: 600; }
+td { padding: 10px; border-bottom: 1px solid var(--border); }
+tr:hover td { background: var(--hover); }
+.badge { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+.badge-pending  { background: #f39c12; color: #000; }
+.badge-running  { background: #2980b9; color: #fff; }
+.badge-done     { background: #27ae60; color: #fff; }
+.badge-fejl     { background: #c0392b; color: #fff; }
+.badge-on-hold  { background: #7f8c8d; color: #fff; }
+.mt { margin-top: 16px; }
+.gap { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.clickable { cursor: pointer; color: var(--accent); text-decoration: underline; }
+.clickable:hover { opacity: 0.8; }
+.linje-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 8px; align-items: end; margin-bottom: 8px; }
+.tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 2px solid var(--border); }
+.tab-btn { background: none; border: none; padding: 10px 16px; cursor: pointer; color: var(--text-secondary); border-bottom: 3px solid transparent; }
+.tab-btn.aktiv { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-content { display: none; }
+.tab-content.aktiv { display: block; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚙ nGrave</h1>
+  <button class="theme-toggle" onclick="toggleTheme()" title="Skift tema">🌓</button>
+  <div class="status" id="status-bar">Indlæser...</div>
+</header>
+
+<nav>
+  <button class="aktiv" onclick="skift('nyt-job')">Nyt job</button>
+  <button onclick="skift('jobkoe')">Jobkø</button>
+  <button onclick="skift('skilte')">Skilte</button>
+  <button onclick="skift('templates')">Nøgle-templates</button>
+  <button onclick="skift('skilt-templates')">Skilt-templates</button>
+  <button onclick="skift('maskiner')">Maskiner</button>
+</nav>
+
+<main>
+
+<!-- NYT JOB -->
+<div id="panel-nyt-job" class="panel aktiv">
+  <div class="kort">
+    <h2>Nyt nøgle-graveringsjob</h2>
+    
+    <div class="form-section">
+      <h3>Nøgledata</h3>
+      <div id="job-felter-container" class="form-grid"></div>
+    </div>
+
+    <div class="form-section">
+      <h3>Template og maskine</h3>
+      <div class="form-grid">
+        <div><label>Template (nøgletype)</label><select id="job-template" onchange="opdaterJobFelter(); localStorage.setItem('sidst_template', this.value)"></select></div>
+        <div><label>Maskine</label><select id="job-maskine"></select></div>
+        <div><label>Jobnavn (valgfrit)</label><input id="job-navn" placeholder="Auto-genereres"></div>
+        <div>
+          <label>Start slot</label>
+          <input id="job-startslot" type="number" value="1" min="1">
+          <p style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;">Første ledige slot på pladen</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt gap">
+      <button class="btn btn-primary" onclick="sendJob()">Send til jobkø</button>
+      <span id="job-status" style="color:var(--text-secondary);font-size:0.85rem;"></span>
+    </div>
+  </div>
+</div>
+
+<!-- JOBKØ -->
+<div id="panel-jobkoe" class="panel">
+  <div class="kort">
+    <h2>Jobkø</h2>
+    <div class="tabs">
+      <button class="tab-btn aktiv" onclick="skiftJobkoTab('noegler')">🔑 Nøgle-jobs</button>
+      <button class="tab-btn" onclick="skiftJobkoTab('skilte')">🏷️ Skilte-jobs</button>
+    </div>
+    
+    <div id="jobkoe-noegler" class="tab-content aktiv">
+      <div class="gap" style="margin-bottom:12px;">
+        <button class="btn btn-secondary" onclick="hentBatches()">Opdater</button>
+        <button class="btn btn-danger" onclick="rydOpJobkoe('noegler')" style="margin-left:auto;">🗑️ Ryd op i færdige jobs</button>
+      </div>
+      <table>
+        <thead><tr>
+          <th>ID</th><th>Navn</th><th>Template</th><th>Maskine</th>
+          <th>Markering</th><th>System</th><th>Løbenr</th><th>Status</th><th></th>
+        </tr></thead>
+        <tbody id="batch-tabel"></tbody>
+      </table>
+    </div>
+
+    <div id="jobkoe-skilte" class="tab-content">
+      <div class="gap" style="margin-bottom:12px;">
+        <button class="btn btn-secondary" onclick="hentSkilteKoe()">Opdater</button>
+        <button class="btn btn-danger" onclick="rydOpJobkoe('skilte')" style="margin-left:auto;">🗑️ Ryd op i færdige jobs</button>
+      </div>
+      <table>
+        <thead><tr>
+          <th>ID</th><th>Navn</th><th>Template</th><th>Størrelse</th><th>Linjer</th><th>Maskine</th><th>Status</th><th></th>
+        </tr></thead>
+        <tbody id="skilte-koe-tabel"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- SKILTE -->
+<div id="panel-skilte" class="panel">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;">
+    
+    <!-- Venstre: Form -->
+    <div class="kort">
+      <h2>Nyt skilt</h2>
+      
+      <div class="form-section">
+        <h3>Type</h3>
+        <div class="gap">
+          <label><input type="radio" name="skilt-type" value="template" onchange="skiftSkiltType()" checked> Fra template</label>
+          <label><input type="radio" name="skilt-type" value="frit" onchange="skiftSkiltType()"> Frit skilt</label>
+        </div>
+      </div>
+
+      <div id="skilt-template-sektion" class="form-section">
+        <h3>Vælg template</h3>
+        <div class="form-grid">
+          <div><label>Skilt-template</label><select id="skilt-template-valg" onchange="loadSkiltTemplate()"></select></div>
+        </div>
+      </div>
+
+      <div id="skilt-frit-sektion" class="form-section" style="display:none;">
+        <h3>Størrelse</h3>
+        <div class="form-grid">
+          <div><label>Bredde (mm)</label><input id="skilt-bredde" type="number" value="200" step="1" onchange="opdaterSkiltPreview()"></div>
+          <div><label>Højde (mm)</label><input id="skilt-hoejde" type="number" value="100" step="1" onchange="opdaterSkiltPreview()"></div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <h3>Maskine</h3>
+        <div class="form-grid">
+          <div><label>Vælg maskine</label><select id="skilt-maskine"></select></div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <h3>Tekst-linjer</h3>
+        <div id="skilt-linjer-container"></div>
+        <div class="mt gap">
+          <button class="btn btn-secondary" onclick="tilfoejLinje()">+ Tilføj linje</button>
+          <span style="color:var(--text-secondary);font-size:0.85rem;">(Max 10 linjer)</span>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <h3>Afstand og margener</h3>
+        <div class="form-grid">
+          <div>
+            <label>Top-margen (mm)</label>
+            <input id="skilt-margin-top" type="number" value="" step="0.5" placeholder="Auto (10%)" onchange="opdaterSkiltPreview()">
+          </div>
+          <div>
+            <label>Bund-margen (mm)</label>
+            <input id="skilt-margin-bund" type="number" value="" step="0.5" placeholder="Auto (10%)" onchange="opdaterSkiltPreview()">
+          </div>
+          <div>
+            <label>Linje-afstand (mm)</label>
+            <input id="skilt-linje-afstand" type="number" value="" step="0.5" placeholder="Auto (fordelt jævnt)" onchange="opdaterSkiltPreview()">
+          </div>
+        </div>
+      </div>
+
+      <div class="mt gap">
+        <button class="btn btn-primary" onclick="sendSkilt()">Send skilt til jobkø</button>
+        <span id="skilt-status" style="color:var(--text-secondary);font-size:0.85rem;"></span>
+      </div>
+    </div>
+
+    <!-- Højre: Preview -->
+    <div class="kort" style="position:sticky;top:20px;">
+      <h2>Visualisering</h2>
+      <p style="color:var(--text-secondary);font-size:0.8rem;margin-bottom:12px;">Live preview — opdateres automatisk</p>
+      <div style="background:var(--bg-tertiary);padding:12px;border-radius:6px;display:flex;justify-content:center;align-items:center;min-height:300px;overflow:auto;">
+        <svg id="skilt-preview" style="max-width:100%;background:#fff;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.2);"></svg>
+      </div>
+      <div style="margin-top:8px;display:flex;gap:12px;font-size:0.75rem;color:var(--text-secondary);">
+        <span>📐 Proportional visning</span>
+        <span>⬛ = tekst-felt</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- NØGLE-TEMPLATES -->
+<div id="panel-templates" class="panel">
+  <div class="kort">
+    <h2>Nøgle-templates</h2>
+    <table>
+      <thead><tr><th>ID</th><th>Navn</th><th>Nøgletype</th><th>Zone B×H</th><th>Slots</th><th></th></tr></thead>
+      <tbody id="template-tabel"></tbody>
+    </table>
+    <div class="mt">
+      <button class="btn btn-secondary" onclick="visNyTemplate()">+ Ny template</button>
+    </div>
+  </div>
+  
+  <div class="kort" id="template-form" style="display:none;">
+    <h2 id="template-form-titel">Ny template</h2>
+    <input type="hidden" id="t-id">
+    
+    <div class="tabs">
+      <button class="tab-btn aktiv" onclick="skiftTab('t-basis')">Basis</button>
+      <button class="tab-btn" onclick="skiftTab('t-felt')">Felt-placering</button>
+      <button class="tab-btn" onclick="skiftTab('t-grid')">Grid</button>
+    </div>
+
+    <div id="tab-t-basis" class="tab-content aktiv">
+      <div class="form-grid">
+        <div><label>Navn</label><input id="t-navn"></div>
+        <div><label>Nøgletype</label><input id="t-type"></div>
+        <div><label>Beskrivelse</label><input id="t-beskrivelse"></div>
+        <div><label>Zone bredde (mm)</label><input id="t-bredde" type="number" value="18" step="0.1"></div>
+        <div><label>Zone højde (mm)</label><input id="t-hoejde" type="number" value="8" step="0.1"></div>
+        <div><label>Tekst højde (mm)</label><input id="t-th" type="number" value="3.5" step="0.1"></div>
+        <div><label>Feed XY (in/min)</label><input id="t-fxy" type="number" value="12"></div>
+        <div><label>Feed Z (in/min)</label><input id="t-fz" type="number" value="40"></div>
+        <div><label>Spindle RPM</label><input id="t-rpm" type="number" value="16000"></div>
+        <div><label>Z løft (mm)</label><input id="t-zop" type="number" value="5" step="0.1"></div>
+        <div><label>Prox offset (mm)</label><input id="t-prox" type="number" value="1.5" step="0.1"></div>
+        <div><label>Standard maskine</label><select id="t-maskine"><option value="">Valgfri</option></select></div>
+      </div>
+      <p style="color:var(--text-secondary);font-size:0.8rem;margin-top:12px;">💡 Skrifttype og tekststørrelse per felt sættes under <strong>Felt-placering</strong> tabben.</p>
+    </div>
+
+    <div id="tab-t-felt" class="tab-content">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+        <div>
+          <h3 style="margin-bottom:12px;color:var(--accent);">Felter</h3>
+          <p style="color:var(--text-secondary);font-size:0.8rem;margin-bottom:16px;">Aktivér/deaktivér felter, giv dem brugerdefinerede navne og placér dem via X/Y + justering.</p>
+          
+          <div style="background:var(--bg-tertiary);padding:12px;border-radius:6px;margin-bottom:12px;">
+            <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+              <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="t-mark-aktiv" checked onchange="opdaterPreview()"> <span style="color:#3498db;font-weight:600;">📍 Felt 1</span></label>
+              <input id="t-mark-navn" value="Markering" style="flex:1;" onchange="opdaterPreview()">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1.5fr 1.5fr 1fr;gap:8px;">
+              <div><label>X (mm)</label><input id="t-mark-x" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
+              <div><label>Y (mm)</label><input id="t-mark-y" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
+              <div><label>Justering</label><select id="t-mark-jus" onchange="opdaterPreview()">
+                <option value="venstre" selected>Venstre</option>
+                <option value="center">Center</option>
+                <option value="hoejre">Højre</option>
+              </select></div>
+              <div><label>Skrifttype</label><select id="t-mark-font" onchange="opdaterPreview()" style="border-left:3px solid #3498db;">
+                <option value="">← Fælles font</option>
+                <option value="block">Block (custom)</option>
+                <option value="futural">Sans-serif simpel</option>
+                <option value="romans">Roman simpel</option>
+                <option value="romanc">Roman</option>
+                <option value="romand">Roman duplex</option>
+                <option value="romant">Roman fed</option>
+                <option value="italics">Italic simpel</option>
+                <option value="italiccs">Italic</option>
+                <option value="italict">Italic fed</option>
+                <option value="scriptc">Script</option>
+                <option value="scripts">Script simpel</option>
+                <option value="gothgbt">Gothic fed</option>
+                <option value="gothgrt">Gothic</option>
+              </select></div>
+              <div><label>Størrelse (mm)</label><input id="t-mark-hoejde" type="number" value="" step="0.1" placeholder="Fælles" onchange="opdaterPreview()"></div>
+            </div>
+          </div>
+          
+          <div style="background:var(--bg-tertiary);padding:12px;border-radius:6px;margin-bottom:12px;">
+            <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+              <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="t-sys-aktiv" checked onchange="opdaterPreview()"> <span style="color:#27ae60;font-weight:600;">🔢 Felt 2</span></label>
+              <input id="t-sys-navn" value="System nr" style="flex:1;" onchange="opdaterPreview()">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1.5fr 1.5fr 1fr;gap:8px;">
+              <div><label>X (mm)</label><input id="t-sys-x" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
+              <div><label>Y (mm)</label><input id="t-sys-y" type="number" value="5" step="0.1" onchange="opdaterPreview()"></div>
+              <div><label>Justering</label><select id="t-sys-jus" onchange="opdaterPreview()">
+                <option value="venstre" selected>Venstre</option>
+                <option value="center">Center</option>
+                <option value="hoejre">Højre</option>
+              </select></div>
+              <div><label>Skrifttype</label><select id="t-sys-font" onchange="opdaterPreview()" style="border-left:3px solid #27ae60;">
+                <option value="">← Fælles font</option>
+                <option value="block">Block (custom)</option>
+                <option value="futural">Sans-serif simpel</option>
+                <option value="romans">Roman simpel</option>
+                <option value="romanc">Roman</option>
+                <option value="romand">Roman duplex</option>
+                <option value="romant">Roman fed</option>
+                <option value="italics">Italic simpel</option>
+                <option value="italiccs">Italic</option>
+                <option value="italict">Italic fed</option>
+                <option value="scriptc">Script</option>
+                <option value="scripts">Script simpel</option>
+                <option value="gothgbt">Gothic fed</option>
+                <option value="gothgrt">Gothic</option>
+              </select></div>
+              <div><label>Størrelse (mm)</label><input id="t-sys-hoejde" type="number" value="" step="0.1" placeholder="Fælles" onchange="opdaterPreview()"></div>
+            </div>
+          </div>
+          
+          <div style="background:var(--bg-tertiary);padding:12px;border-radius:6px;margin-bottom:12px;">
+            <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+              <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="t-loebe-aktiv" checked onchange="opdaterPreview()"> <span style="color:#f39c12;font-weight:600;">🔖 Felt 3 (auto-løbenr)</span></label>
+              <input id="t-loebe-navn" value="Løbenr" style="flex:1;" onchange="opdaterPreview()">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1.5fr 1.5fr 1fr;gap:8px;">
+              <div><label>X (mm)</label><input id="t-loebe-x" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
+              <div><label>Y (mm)</label><input id="t-loebe-y" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
+              <div><label>Justering</label><select id="t-loebe-jus" onchange="opdaterPreview()">
+                <option value="venstre">Venstre</option>
+                <option value="center">Center</option>
+                <option value="hoejre" selected>Højre</option>
+              </select></div>
+              <div><label>Skrifttype</label><select id="t-loebe-font" onchange="opdaterPreview()" style="border-left:3px solid #f39c12;">
+                <option value="">← Fælles font</option>
+                <option value="block">Block (custom)</option>
+                <option value="futural">Sans-serif simpel</option>
+                <option value="romans">Roman simpel</option>
+                <option value="romanc">Roman</option>
+                <option value="romand">Roman duplex</option>
+                <option value="romant">Roman fed</option>
+                <option value="italics">Italic simpel</option>
+                <option value="italiccs">Italic</option>
+                <option value="italict">Italic fed</option>
+                <option value="scriptc">Script</option>
+                <option value="scripts">Script simpel</option>
+                <option value="gothgbt">Gothic fed</option>
+                <option value="gothgrt">Gothic</option>
+              </select></div>
+              <div><label>Størrelse (mm)</label><input id="t-loebe-hoejde" type="number" value="" step="0.1" placeholder="Fælles" onchange="opdaterPreview()"></div>
+            </div>
+            <p style="font-size:0.7rem;color:var(--text-secondary);margin-top:6px;">Tæller automatisk fra Løbenr fra → Løbenr til ved job-oprettelse</p>
+          </div>
+
+          <div style="background:var(--bg-tertiary);padding:12px;border-radius:6px;">
+            <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+              <label style="display:flex;align-items:center;gap:6px;margin:0;"><input type="checkbox" id="t-ekstra-aktiv" onchange="opdaterPreview()"> <span style="color:#9b59b6;font-weight:600;">✨ Felt 4</span></label>
+              <input id="t-ekstra-navn" value="Ekstra" style="flex:1;" onchange="opdaterPreview()">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1.5fr 1.5fr 1fr;gap:8px;">
+              <div><label>X (mm)</label><input id="t-ekstra-x" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
+              <div><label>Y (mm)</label><input id="t-ekstra-y" type="number" value="10" step="0.1" onchange="opdaterPreview()"></div>
+              <div><label>Justering</label><select id="t-ekstra-jus" onchange="opdaterPreview()">
+                <option value="venstre" selected>Venstre</option>
+                <option value="center">Center</option>
+                <option value="hoejre">Højre</option>
+              </select></div>
+              <div><label>Skrifttype</label><select id="t-ekstra-font" onchange="opdaterPreview()" style="border-left:3px solid #9b59b6;">
+                <option value="">← Fælles font</option>
+                <option value="block">Block (custom)</option>
+                <option value="futural">Sans-serif simpel</option>
+                <option value="romans">Roman simpel</option>
+                <option value="romanc">Roman</option>
+                <option value="romand">Roman duplex</option>
+                <option value="romant">Roman fed</option>
+                <option value="italics">Italic simpel</option>
+                <option value="italiccs">Italic</option>
+                <option value="italict">Italic fed</option>
+                <option value="scriptc">Script</option>
+                <option value="scripts">Script simpel</option>
+                <option value="gothgbt">Gothic fed</option>
+                <option value="gothgrt">Gothic</option>
+              </select></div>
+              <div><label>Størrelse (mm)</label><input id="t-ekstra-hoejde" type="number" value="" step="0.1" placeholder="Fælles" onchange="opdaterPreview()"></div>
+            </div>
+          </div>
+        </div>
+        
+        <div>
+          <h3 style="margin-bottom:12px;color:var(--accent);">Visualisering</h3>
+          <p style="color:var(--text-secondary);font-size:0.8rem;margin-bottom:16px;">Zone med eksempel-tekst. Kun aktive felter vises.</p>
+          <div style="background:var(--bg-tertiary);padding:16px;border-radius:6px;display:flex;justify-content:center;align-items:center;min-height:250px;">
+            <svg id="felt-preview" width="400" height="300" style="background:#fff;border-radius:4px;"></svg>
+          </div>
+          <p style="color:var(--text-secondary);font-size:0.75rem;margin-top:8px;text-align:center;">1 mm = 8 px</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-t-grid" class="tab-content">
+      <div class="form-grid" style="margin-bottom:12px;">
+        <div><label>Kolonner</label><input id="t-grid-kol" type="number" value="5" min="1"></div>
+        <div><label>Rækker</label><input id="t-grid-raek" type="number" value="4" min="1"></div>
+        <div><button class="btn btn-secondary" onclick="genererGrid()">Generér grid</button></div>
+      </div>
+
+      <div style="background:var(--bg-tertiary);padding:12px;border-radius:6px;margin-bottom:12px;">
+        <h4 style="font-size:0.85rem;color:var(--accent);margin-bottom:10px;">⚡ Auto-udfyld grid</h4>
+        <div class="form-grid" style="margin-bottom:8px;">
+          <div><label>Start X (mm)</label><input id="t-auto-startx" type="number" value="24" step="0.1"></div>
+          <div><label>Start Y (mm)</label><input id="t-auto-starty" type="number" value="14" step="0.1"></div>
+          <div><label>Afstand X (mm)</label><input id="t-auto-dx" type="number" value="50" step="0.1"></div>
+          <div><label>Afstand Y (mm)</label><input id="t-auto-dy" type="number" value="66" step="0.1"></div>
+          <div><button class="btn btn-primary" onclick="autoUdfyldGrid()">⚡ Auto-udfyld</button></div>
+        </div>
+        <p style="font-size:0.75rem;color:var(--text-secondary);">
+          Beregner alle slot-koordinater automatisk ud fra startpunkt og afstand.
+        </p>
+      </div>
+
+      <div style="max-height:400px;overflow-y:auto;">
+        <table style="font-size:0.8rem;">
+          <thead><tr><th>Slot</th><th>X (mm)</th><th>Y (mm)</th></tr></thead>
+          <tbody id="grid-tabel"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="mt gap">
+      <button class="btn btn-primary" onclick="gemTemplate()">Gem template</button>
+      <button class="btn btn-secondary" onclick="skjulTemplateForm()">Annuller</button>
+    </div>
+  </div>
+</div>
+
+<!-- SKILT-TEMPLATES -->
+<div id="panel-skilt-templates" class="panel">
+  <div class="kort">
+    <h2>Skilt-templates</h2>
+    <table>
+      <thead><tr><th>ID</th><th>Navn</th><th>Størrelse</th><th>Linjer</th><th></th></tr></thead>
+      <tbody id="skilt-template-tabel"></tbody>
+    </table>
+    <div class="mt">
+      <button class="btn btn-secondary" onclick="visNySkiltTemplate()">+ Ny skilt-template</button>
+    </div>
+  </div>
+
+  <div class="kort" id="skilt-template-form" style="display:none;">
+    <h2 id="skilt-template-form-titel">Ny skilt-template</h2>
+    <input type="hidden" id="st-id">
+    
+    <div class="form-grid">
+      <div><label>Navn</label><input id="st-navn"></div>
+      <div><label>Beskrivelse</label><input id="st-beskrivelse"></div>
+      <div><label>Bredde (mm)</label><input id="st-bredde" type="number" value="200" step="1"></div>
+      <div><label>Højde (mm)</label><input id="st-hoejde" type="number" value="100" step="1"></div>
+      <div><label>Antal linjer</label><input id="st-antal" type="number" value="2" min="1" max="10" onchange="opdaterLinjeConfig()"></div>
+      <div><label>Standard maskine</label><select id="st-maskine"><option value="">Valgfri</option></select></div>
+    </div>
+
+    <div class="form-section">
+      <h3>Afstand og margener</h3>
+      <div class="form-grid">
+        <div>
+          <label>Top-margen (mm)</label>
+          <input id="st-margin-top" type="number" step="0.5" placeholder="Auto (10%)">
+        </div>
+        <div>
+          <label>Bund-margen (mm)</label>
+          <input id="st-margin-bund" type="number" step="0.5" placeholder="Auto (10%)">
+        </div>
+        <div>
+          <label>Linje-afstand (mm)</label>
+          <input id="st-linje-afstand" type="number" step="0.5" placeholder="Auto (jævnt fordelt)">
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <h3>Linje-konfiguration</h3>
+      <div id="st-linjer-container"></div>
+    </div>
+
+    <div class="mt gap">
+      <button class="btn btn-primary" onclick="gemSkiltTemplate()">Gem template</button>
+      <button class="btn btn-secondary" onclick="skjulSkiltTemplateForm()">Annuller</button>
+    </div>
+  </div>
+</div>
+
+<!-- MASKINER -->
+<div id="panel-maskiner" class="panel">
+  <div class="kort">
+    <h2>Maskiner</h2>
+    <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:12px;">IP/port/protokol redigeres via SQL. Kalibrering redigeres herunder.</p>
+    <table>
+      <thead><tr><th>ID</th><th>Navn</th><th>Model</th><th>IP</th><th>Port</th><th>Offset X</th><th>Offset Y</th><th>Offset Z</th><th></th></tr></thead>
+      <tbody id="maskiner-tabel"></tbody>
+    </table>
+  </div>
+
+  <div class="kort" id="kalibrering-form" style="display:none;">
+    <h2 id="kalibrering-titel">Kalibrering</h2>
+    <input type="hidden" id="k-id">
+    <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:16px;">
+      Offset lægges til alle koordinater for denne maskine. Positiv X = højre, positiv Y = frem, positiv Z = dybere.
+    </p>
+    <div class="form-grid">
+      <div>
+        <label>Offset X (mm)</label>
+        <input id="k-x" type="number" value="0" step="0.1">
+        <p style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;">+ = højre &nbsp; - = venstre</p>
+      </div>
+      <div>
+        <label>Offset Y (mm)</label>
+        <input id="k-y" type="number" value="0" step="0.1">
+        <p style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;">+ = frem &nbsp; - = tilbage</p>
+      </div>
+      <div>
+        <label>Offset Z (mm)</label>
+        <input id="k-z" type="number" value="0" step="0.1">
+        <p style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;">+ = dybere &nbsp; - = lavere</p>
+      </div>
+    </div>
+    <div class="mt gap">
+      <button class="btn btn-primary" onclick="gemKalibrering()">Gem kalibrering</button>
+      <button class="btn btn-secondary" onclick="testMaskine()">▶ Test position</button>
+      <button class="btn btn-secondary" onclick="document.getElementById('kalibrering-form').style.display='none'">Annuller</button>
+      <span id="k-status" style="font-size:0.85rem;color:var(--text-secondary);"></span>
+    </div>
+  </div>
+</div>
+
+</main>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+let maskiner = [], templates = [], skiltTemplates = [], fonts = {};
+let redigerTemplateId = null, redigerSkiltTemplateId = null;
+let skiltLinjer = [];
+let gridSlots = [];
+let currentTab = 't-basis';
+
+// ─── Theme ────────────────────────────────────────────────────────────────────
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+}
+
+// Load saved theme
+const savedTheme = localStorage.getItem('theme') || 'dark';
+document.documentElement.setAttribute('data-theme', savedTheme);
+
+// ─── Navigation ───────────────────────────────────────────────────────────────
+function skift(panel) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('aktiv'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('aktiv'));
+  document.getElementById('panel-' + panel).classList.add('aktiv');
+  event.target.classList.add('aktiv');
+  if (panel === 'jobkoe')           hentBatches();
+  if (panel === 'skilte')           { initSkilt(); }
+  if (panel === 'templates')        hentTemplates();
+  if (panel === 'skilt-templates')  hentSkiltTemplates();
+  if (panel === 'maskiner')         hentMaskiner();
+}
+
+function skiftTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('aktiv'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('aktiv'));
+  event.target.classList.add('aktiv');
+  document.getElementById('tab-' + tab).classList.add('aktiv');
+  currentTab = tab;
+  if (tab === 't-felt') setTimeout(opdaterPreview, 50);
+}
+
+// ─── API ──────────────────────────────────────────────────────────────────────
+async function api(url, method='GET', data=null) {
+  const opts = { method, headers: {'Content-Type':'application/json'} };
+  if (data) opts.body = JSON.stringify(data);
+  const r = await fetch(url, opts);
+  return r.json();
+}
+
+// ─── Status bar ───────────────────────────────────────────────────────────────
+async function opdaterStatus() {
+  const s = await api('/api/status');
+  document.getElementById('status-bar').textContent = `Jobkø: ${s.pending} pending / ${s.running} kører`;
+}
+setInterval(opdaterStatus, 3000);
+opdaterStatus();
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+async function initDropdowns() {
+  maskiner  = await api('/api/maskiner');
+  templates = await api('/api/templates');
+  skiltTemplates = await api('/api/skilt-templates');
+  fonts = await api('/api/fonts');
+
+  const jtempl = document.getElementById('job-template');
+  jtempl.innerHTML = templates.map(t => `<option value="${t.id}" data-maskine="${t.maskine_id||''}">${t.navn}</option>`).join('');
+  // Husk sidst brugte template
+  const sidst = localStorage.getItem('sidst_template');
+  if (sidst && jtempl.querySelector(`option[value="${sidst}"]`)) {
+    jtempl.value = sidst;
+  }
+
+  const jmask = document.getElementById('job-maskine');
+  jmask.innerHTML = maskiner.map(m => `<option value="${m.id}">${m.navn} (${m.model})</option>`).join('');
+  opdaterTemplateMaskine();
+
+  const smask = document.getElementById('skilt-maskine');
+  smask.innerHTML = maskiner.map(m => `<option value="${m.id}">${m.navn}</option>`).join('');
+
+  const stvalg = document.getElementById('skilt-template-valg');
+  stvalg.innerHTML = '<option value="">Vælg template...</option>' + 
+    skiltTemplates.map(t => `<option value="${t.id}">${t.navn}</option>`).join('');
+
+  const tmask = document.getElementById('t-maskine');
+  tmask.innerHTML = '<option value="">Valgfri</option>' + maskiner.map(m => `<option value="${m.id}">${m.navn}</option>`).join('');
+
+  const stmask = document.getElementById('st-maskine');
+  stmask.innerHTML = '<option value="">Valgfri</option>' + maskiner.map(m => `<option value="${m.id}">${m.navn}</option>`).join('');
+}
+
+function opdaterTemplateMaskine() {
+  const sel = document.getElementById('job-template');
+  const opt = sel.options[sel.selectedIndex];
+  const mid = opt ? opt.dataset.maskine : '';
+  if (mid) document.getElementById('job-maskine').value = mid;
+}
+
+function opdaterJobFelter() {
+  opdaterTemplateMaskine();
+  const sel = document.getElementById('job-template');
+  const tid = +sel.value;
+  const tmpl = templates.find(t => t.id == tid);
+  const container = document.getElementById('job-felter-container');
+  if (!tmpl) { container.innerHTML = ''; return; }
+
+  let html = '';
+  if (tmpl.markering_aktiv) {
+    html += `<div><label>${tmpl.markering_navn||'Markering'}</label><input id="job-type" placeholder=""></div>`;
+  }
+  if (tmpl.system_aktiv) {
+    html += `<div><label>${tmpl.system_navn||'System nr'}</label><input id="job-system" placeholder=""></div>`;
+  }
+  if (tmpl.ekstra_aktiv) {
+    html += `<div><label>${tmpl.ekstra_navn||'Ekstra'}</label><input id="job-ekstra" placeholder=""></div>`;
+  }
+  if (tmpl.loebe_aktiv) {
+    html += `<div><label>${tmpl.loebe_navn||'Løbenr'} fra</label><input id="job-fra" type="number" value="1" min="1"></div>`;
+    html += `<div><label>${tmpl.loebe_navn||'Løbenr'} til</label><input id="job-til" type="number" value="20" min="1"></div>`;
+  } else {
+    html += `<div><label>Antal emner</label><input id="job-antal" type="number" value="1" min="1"></div>`;
+  }
+  container.innerHTML = html;
+}
+
+// ─── Nyt job ──────────────────────────────────────────────────────────────────
+async function sendJob() {
+  const status = document.getElementById('job-status');
+  status.textContent = 'Sender...';
+
+  const getVal = (id) => {
+    const el = document.getElementById(id);
+    return el ? el.value.trim() : '';
+  };
+  const getNum = (id, def) => {
+    const el = document.getElementById(id);
+    return el && el.value !== '' ? +el.value : def;
+  };
+
+  const res = await api('/api/batches', 'POST', {
+    template_id: document.getElementById('job-template').value,
+    maskine_id:  document.getElementById('job-maskine').value,
+    type_felt:   getVal('job-type').toUpperCase(),
+    system_nr:   getVal('job-system').toUpperCase(),
+    ekstra_tekst: getVal('job-ekstra').toUpperCase(),
+    loebe_fra:   getNum('job-fra', 1),
+    loebe_til:   getNum('job-til', 1),
+    antal:       getNum('job-antal', 1),
+    navn:        getVal('job-navn') || null,
+    start_slot:  getNum('job-startslot', 1) || 1,
+  });
+  if (res.ok) {
+    status.textContent = `✓ ${res.jobs} jobs fordelt på ${res.batches} plader (${res.plade_size} slots/plade)`;
+    status.style.color = '#27ae60';
+  } else {
+    status.textContent = `✗ Fejl: ${res.fejl}`;
+    status.style.color = 'var(--accent)';
+  }
+}
+
+// ─── Jobkø ────────────────────────────────────────────────────────────────────
+function skiftJobkoTab(tab) {
+  document.querySelectorAll('#panel-jobkoe .tab-btn').forEach(b => b.classList.remove('aktiv'));
+  document.querySelectorAll('#panel-jobkoe .tab-content').forEach(c => c.classList.remove('aktiv'));
+  event.target.classList.add('aktiv');
+  document.getElementById('jobkoe-' + tab).classList.add('aktiv');
+  if (tab === 'noegler') hentBatches();
+  if (tab === 'skilte') hentSkilteKoe();
+}
+
+async function hentSkilteKoe() {
+  const rows = await api('/api/skilte');
+  document.getElementById('skilte-koe-tabel').innerHTML = rows.map(r => {
+    const linjer = JSON.parse(r.linjer_json);
+    return `<tr>
+      <td>#${r.id}</td><td>${r.navn}</td><td>${r.template_navn||'—'}</td>
+      <td>${r.skilt_bredde_mm}×${r.skilt_hoejde_mm} mm</td><td>${linjer.length} linjer</td>
+      <td>${r.maskine_navn}</td><td><span class="badge badge-${r.status}">${r.status}</span></td>
+      <td>${r.status==='pending'?`<button class="btn btn-danger" onclick="annullerSkilt(${r.id})" style="padding:4px 10px;font-size:0.8rem">Annuller</button>`:''}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function hentBatches() {
+  const rows = await api('/api/batches');
+  document.getElementById('batch-tabel').innerHTML = rows.map(r => `
+    <tr>
+      <td>#${r.id}</td><td>${r.navn}</td><td>${r.template_navn}</td><td>${r.maskine_navn}</td>
+      <td>${r.type_felt}</td><td>${r.system_nr}</td><td>${r.loebe_fra}–${r.loebe_til}</td>
+      <td><span class="badge badge-${r.status}">${r.status}</span></td>
+      <td class="gap">
+        ${r.status==='pending'||r.status==='on-hold'?`<button class="btn btn-danger" onclick="annuller(${r.id})" style="padding:4px 10px;font-size:0.8rem">Annuller</button>`:''}
+        ${r.status==='on-hold'?`<button class="btn btn-primary" onclick="frigiv(${r.id})" style="padding:4px 10px;font-size:0.8rem">▶ Frigiv</button>`:''}
+      </td>
+    </tr>`).join('');
+}
+
+async function frigiv(id) { await api(`/api/batches/${id}/frigiv`, 'POST'); hentBatches(); }
+async function annuller(id) { await api(`/api/batches/${id}/annuller`, 'POST'); hentBatches(); }
+
+async function rydOpJobkoe(type) {
+  if (!confirm('Slet alle færdige (done) og fejlede (fejl) jobs?')) return;
+  const res = await api(`/api/jobkoe/ryd-op`, 'POST', { type });
+  if (res.ok) {
+    if (type === 'noegler') hentBatches();
+    else hentSkilteKoe();
+    alert(`Slettet ${res.slettet} jobs`);
+  }
+}
+
+// ─── Skilt visualisering ──────────────────────────────────────────────────────
+// Mapper Hershey font navne til CSS font-family approximationer
+function fontTilCSS(font) {
+  const m = {
+    'block':    'monospace',
+    'futural':  'Arial, sans-serif',
+    'romans':   'Arial, sans-serif',
+    'romanc':   'Georgia, serif',
+    'romand':   'Georgia, serif',
+    'romant':   '"Times New Roman", serif',
+    'italics':  'italic Georgia, serif',
+    'italiccs': 'italic Georgia, serif',
+    'italict':  'italic "Times New Roman", serif',
+    'scriptc':  'cursive',
+    'scripts':  'cursive',
+    'gothgbt':  '"Palatino Linotype", fantasy',
+    'gothgrt':  '"Palatino Linotype", fantasy',
+  };
+  return m[font] || 'monospace';
+}
+
+function fontErItalic(font) {
+  return font && (font.startsWith('italic') || font === 'italics' || font === 'italiccs' || font === 'italict');
+}
+
+function opdaterSkiltPreview() {
+  const svg = document.getElementById('skilt-preview');
+  if (!svg) return;
+
+  const bredde = +document.getElementById('skilt-bredde').value || 200;
+  const hoejde = +document.getElementById('skilt-hoejde').value || 100;
+  const mtIn = document.getElementById('skilt-margin-top').value;
+  const mbIn = document.getElementById('skilt-margin-bund').value;
+  const laIn = document.getElementById('skilt-linje-afstand').value;
+
+  const margin_top    = mtIn ? +mtIn : hoejde * 0.1;
+  const margin_bottom = mbIn ? +mbIn : hoejde * 0.1;
+  const linje_afstand = laIn ? +laIn : null;
+
+  const maxW = 400;
+  const maxH = 300;
+  const scale = Math.min(maxW / bredde, maxH / hoejde, 3);
+  const pad = 20;
+  const labelPad = 65;
+
+  const svgW = bredde * scale + pad * 2 + labelPad;
+  const svgH = hoejde * scale + pad * 2;
+
+  svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+  svg.setAttribute('width', svgW);
+  svg.setAttribute('height', svgH);
+
+  const antal = skiltLinjer.length || 1;
+  const tilg  = hoejde - margin_top - margin_bottom;
+
+  let yPositions = [];
+  if (antal === 1) {
+    yPositions = [margin_top + tilg / 2];
+  } else if (linje_afstand !== null) {
+    for (let i = 0; i < antal; i++) yPositions.push(margin_top + i * linje_afstand);
+  } else {
+    const spacing = tilg / (antal - 1);
+    for (let i = 0; i < antal; i++) yPositions.push(margin_top + i * spacing);
+  }
+
+  const colors = ['#e74c3c','#3498db','#27ae60','#f39c12','#9b59b6','#1abc9c','#e67e22','#e91e63','#00bcd4','#8bc34a'];
+  let html = '';
+
+  html += `<rect x="${pad}" y="${pad}" width="${bredde*scale}" height="${hoejde*scale}" fill="#f8f8f8" stroke="#222" stroke-width="2.5" rx="3"/>`;
+  html += `<text x="${pad + bredde*scale/2}" y="${pad - 7}" font-size="11" fill="#555" text-anchor="middle" font-family="sans-serif">${bredde} × ${hoejde} mm</text>`;
+
+  const mt = margin_top * scale;
+  const mb = margin_bottom * scale;
+  html += `<rect x="${pad}" y="${pad}" width="${bredde*scale}" height="${mt}" fill="#3498db11"/>`;
+  html += `<line x1="${pad}" y1="${pad + mt}" x2="${pad + bredde*scale}" y2="${pad + mt}" stroke="#3498db" stroke-dasharray="4,3" stroke-width="1"/>`;
+  html += `<text x="${pad + 3}" y="${pad + mt - 3}" font-size="9" fill="#3498db" font-family="sans-serif">↑ ${margin_top}mm</text>`;
+  html += `<rect x="${pad}" y="${pad + hoejde*scale - mb}" width="${bredde*scale}" height="${mb}" fill="#3498db11"/>`;
+  html += `<line x1="${pad}" y1="${pad + hoejde*scale - mb}" x2="${pad + bredde*scale}" y2="${pad + hoejde*scale - mb}" stroke="#3498db" stroke-dasharray="4,3" stroke-width="1"/>`;
+  html += `<text x="${pad + 3}" y="${pad + hoejde*scale - mb + 10}" font-size="9" fill="#3498db" font-family="sans-serif">↓ ${margin_bottom}mm</text>`;
+
+  skiltLinjer.forEach((l, i) => {
+    const tekst = l.tekst.trim() || `Linje ${i+1}`;
+    const th    = Math.max((l.hoejde_mm || 10) * scale, 8);
+    // Manuel Y overskriver auto
+    const y     = l.y_mm != null ? l.y_mm * scale : yPositions[i] * scale;
+    const jus   = l.justering || 'venstre';
+    const color = colors[i % colors.length];
+    const cssFont = fontTilCSS(l.font || 'block');
+    const isItalic = fontErItalic(l.font);
+    const tw    = Math.min(tekst.length * th * (isItalic ? 0.52 : 0.58), bredde * scale * 0.9);
+
+    // Manuel X overskriver justering
+    let tx;
+    if (l.x_mm != null)           tx = pad + l.x_mm * scale;
+    else if (jus === 'center')     tx = pad + (bredde*scale - tw) / 2;
+    else if (jus === 'hoejre')     tx = pad + bredde*scale * 0.95 - tw;
+    else                           tx = pad + bredde*scale * 0.05;
+
+    // Vis manuel placering med stiplet linje
+    if (l.x_mm != null) html += `<line x1="${tx}" y1="${pad}" x2="${tx}" y2="${pad + hoejde*scale}" stroke="${color}" stroke-dasharray="3,4" stroke-width="1" opacity="0.4"/>`;
+    if (l.y_mm != null) html += `<line x1="${pad}" y1="${pad + y}" x2="${pad + bredde*scale}" y2="${pad + y}" stroke="${color}" stroke-dasharray="3,4" stroke-width="1" opacity="0.4"/>`;
+
+    html += `<rect x="${tx - 2}" y="${pad + y - th + 2}" width="${tw + 4}" height="${th}" fill="${color}25" rx="2"/>`;
+    html += `<text x="${tx}" y="${pad + y}" font-size="${th * 0.85}" fill="${color}" font-family="${cssFont}" font-style="${isItalic?'italic':'normal'}" font-weight="${l.font==='romant'||l.font==='italict'||l.font==='gothgbt'?'bold':'normal'}">${tekst.substring(0, 30)}</text>`;
+    
+    // Label: vis manuel eller auto placering
+    const xLabel = l.x_mm != null ? `X:${l.x_mm}mm` : jus;
+    const yLabel = l.y_mm != null ? `Y:${l.y_mm}mm` : 'auto';
+    html += `<text x="${pad + bredde*scale + 6}" y="${pad + y}" font-size="9" fill="${color}" font-family="sans-serif">${l.font||'block'} ${l.hoejde_mm||10}mm · ${xLabel} · ${yLabel}</text>`;
+
+    if (i < skiltLinjer.length - 1) {
+      const y2 = yPositions[i+1] * scale;
+      const mx = pad + bredde*scale - 10;
+      const afstand = linje_afstand !== null ? linje_afstand : Math.round((yPositions[i+1] - yPositions[i]) * 10) / 10;
+      html += `<line x1="${mx}" y1="${pad + y}" x2="${mx}" y2="${pad + y2}" stroke="#aaa" stroke-width="1.5"/>`;
+      html += `<text x="${mx - 24}" y="${pad + (y + y2)/2 + 4}" font-size="8" fill="#888" font-family="sans-serif">${afstand}mm</text>`;
+    }
+
+    const dotX = jus === 'center' ? pad + bredde*scale/2 : jus === 'hoejre' ? pad + bredde*scale - 3 : pad + 3;
+    html += `<circle cx="${dotX}" cy="${pad + y - th/2}" r="3" fill="${color}" opacity="0.6"/>`;
+  });
+
+  svg.innerHTML = html;
+}
+
+// ─── Skilte ───────────────────────────────────────────────────────────────────
+function skiftSkiltType() {
+  const type = document.querySelector('input[name="skilt-type"]:checked').value;
+  document.getElementById('skilt-template-sektion').style.display = type === 'template' ? 'block' : 'none';
+  document.getElementById('skilt-frit-sektion').style.display = type === 'frit' ? 'block' : 'none';
+  if (type === 'template' && document.getElementById('skilt-template-valg').value) {
+    loadSkiltTemplate();
+  }
+}
+
+function loadSkiltTemplate() {
+  const id = document.getElementById('skilt-template-valg').value;
+  if (!id) return;
+  const tmpl = skiltTemplates.find(t => t.id == id);
+  if (!tmpl) return;
+
+  document.getElementById('skilt-bredde').value = tmpl.skilt_bredde_mm;
+  document.getElementById('skilt-hoejde').value = tmpl.skilt_hoejde_mm;
+  if (tmpl.maskine_id) document.getElementById('skilt-maskine').value = tmpl.maskine_id;
+
+  document.getElementById('skilt-margin-top').value    = tmpl.margin_top_mm || '';
+  document.getElementById('skilt-margin-bund').value   = tmpl.margin_bottom_mm || '';
+  document.getElementById('skilt-linje-afstand').value = tmpl.linje_afstand_mm || '';
+
+  const config = JSON.parse(tmpl.linjer_config);
+  skiltLinjer = config.map(c => ({
+    tekst: '', justering: c.justering, hoejde_mm: c.hoejde_mm, font: c.font,
+    x_mm: c.x_mm != null ? c.x_mm : null,
+    y_mm: c.y_mm != null ? c.y_mm : null,
+  }));
+  tegnSkiltLinjer();
+}
+
+function initSkilt() {
+  skiltLinjer = [{ tekst: '', justering: 'center', hoejde_mm: 10, font: 'block', x_mm: null, y_mm: null }];
+  tegnSkiltLinjer();
+  setTimeout(opdaterSkiltPreview, 100);
+}
+
+function tegnSkiltLinjer() {
+  const container = document.getElementById('skilt-linjer-container');
+  container.innerHTML = skiltLinjer.map((l, i) => `
+    <div style="background:var(--bg-tertiary);padding:10px;border-radius:6px;margin-bottom:8px;">
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;margin-bottom:6px;">
+        <div><label>Linje ${i+1} - Tekst</label><input value="${l.tekst||''}" onchange="skiltLinjer[${i}].tekst = this.value; opdaterSkiltPreview()"></div>
+        <div>
+          <label>Justering</label>
+          <select onchange="skiltLinjer[${i}].justering = this.value; opdaterSkiltPreview()">
+            <option value="venstre" ${l.justering==='venstre'?'selected':''}>Venstre</option>
+            <option value="center" ${l.justering==='center'?'selected':''}>Center</option>
+            <option value="hoejre" ${l.justering==='hoejre'?'selected':''}>Højre</option>
+          </select>
+        </div>
+        <div>
+          <label>Font</label>
+          <select onchange="skiltLinjer[${i}].font = this.value; opdaterSkiltPreview()">
+            ${Object.entries(fonts).map(([k,v]) => `<option value="${k}" ${l.font===k?'selected':''}>${v}</option>`).join('')}
+          </select>
+        </div>
+        <div><label>Højde (mm)</label><input type="number" value="${l.hoejde_mm||10}" step="0.5" onchange="skiltLinjer[${i}].hoejde_mm = +this.value; opdaterSkiltPreview()"></div>
+        <div><label>&nbsp;</label><button class="btn btn-danger" onclick="fjernLinje(${i})" style="padding:8px 12px;">✕</button></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:8px;">
+        <div>
+          <label style="color:#3498db;">X (mm) <span style="font-weight:normal;font-size:0.7rem;">tom=auto</span></label>
+          <input type="number" value="${l.x_mm!=null?l.x_mm:''}" step="0.5" placeholder="Auto (justering)" onchange="skiltLinjer[${i}].x_mm = this.value!==''?+this.value:null; opdaterSkiltPreview()">
+        </div>
+        <div>
+          <label style="color:#e74c3c;">Y (mm) <span style="font-weight:normal;font-size:0.7rem;">tom=auto</span></label>
+          <input type="number" value="${l.y_mm!=null?l.y_mm:''}" step="0.5" placeholder="Auto (fordelt)" onchange="skiltLinjer[${i}].y_mm = this.value!==''?+this.value:null; opdaterSkiltPreview()">
+        </div>
+        <div style="display:flex;align-items:flex-end;padding-bottom:2px;">
+          <span style="font-size:0.75rem;color:var(--text-secondary);">Tom = automatisk placering baseret på margener</span>
+        </div>
+      </div>
+    </div>
+  `).join('');
+  opdaterSkiltPreview();
+}
+
+function tilfoejLinje() {
+  if (skiltLinjer.length >= 10) { alert('Max 10 linjer tilladt'); return; }
+  skiltLinjer.push({ tekst: '', justering: 'center', hoejde_mm: 10, font: 'block', x_mm: null, y_mm: null });
+  tegnSkiltLinjer();
+}
+
+function fjernLinje(idx) {
+  skiltLinjer.splice(idx, 1);
+  if (skiltLinjer.length === 0) skiltLinjer.push({ tekst: '', justering: 'center', hoejde_mm: 10, font: 'block', x_mm: null, y_mm: null });
+  tegnSkiltLinjer();
+}
+
+async function sendSkilt() {
+  const status = document.getElementById('skilt-status');
+  status.textContent = 'Sender...';
+  
+  const type = document.querySelector('input[name="skilt-type"]:checked').value;
+  const template_id = type === 'template' ? document.getElementById('skilt-template-valg').value : null;
+  
+  const res = await api('/api/skilte', 'POST', {
+    maskine_id: document.getElementById('skilt-maskine').value,
+    template_id: template_id || null,
+    skilt_bredde_mm: +document.getElementById('skilt-bredde').value,
+    skilt_hoejde_mm: +document.getElementById('skilt-hoejde').value,
+    margin_top_mm: document.getElementById('skilt-margin-top').value ? +document.getElementById('skilt-margin-top').value : null,
+    margin_bottom_mm: document.getElementById('skilt-margin-bund').value ? +document.getElementById('skilt-margin-bund').value : null,
+    linje_afstand_mm: document.getElementById('skilt-linje-afstand').value ? +document.getElementById('skilt-linje-afstand').value : null,
+    linjer: skiltLinjer.filter(l => l.tekst.trim() !== ''),
+  });
+  
+  if (res.ok) {
+    status.textContent = '✓ Skilt sendt til jobkø';
+    status.style.color = 'var(--accent)';
+    hentSkilte();
+  } else {
+    status.textContent = '✗ Fejl ved oprettelse';
+    status.style.color = 'var(--accent)';
+  }
+}
+
+async function hentSkilte() {
+  const rows = await api('/api/skilte');
+  document.getElementById('skilte-tabel').innerHTML = rows.map(r => {
+    const linjer = JSON.parse(r.linjer_json);
+    return `<tr>
+      <td>#${r.id}</td><td>${r.navn}</td><td>${r.template_navn||'—'}</td>
+      <td>${r.skilt_bredde_mm}×${r.skilt_hoejde_mm} mm</td><td>${linjer.length} linjer</td>
+      <td>${r.maskine_navn}</td><td><span class="badge badge-${r.status}">${r.status}</span></td>
+      <td>${r.status==='pending'?`<button class="btn btn-danger" onclick="annullerSkilt(${r.id})" style="padding:4px 10px;font-size:0.8rem">Annuller</button>`:''}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function annullerSkilt(id) { await api(`/api/skilte/${id}/annuller`, 'POST'); hentSkilte(); }
+
+// ─── Nøgle-Templates ──────────────────────────────────────────────────────────
+async function hentTemplates() {
+  const rows = await api('/api/templates');
+  templates = rows; // opdater state så redigerTemplate kan finde dem
+  document.getElementById('template-tabel').innerHTML = rows.map(r => {
+    const grid = JSON.parse(r.grid_json);
+    const slots = grid.slots ? grid.slots.length : 0;
+    return `<tr>
+      <td>#${r.id}</td>
+      <td class="clickable" onclick="redigerTemplate(${r.id})">${r.navn}</td>
+      <td>${r.noejle_type}</td><td>${r.zone_bredde_mm}×${r.zone_hoejde_mm} mm</td><td>${slots} slots</td>
+      <td class="gap">
+        <button class="btn btn-secondary" onclick="redigerTemplate(${r.id})" style="padding:4px 10px;font-size:0.8rem">Rediger</button>
+        <button class="btn btn-secondary" onclick="kopierTemplate(${r.id})" style="padding:4px 10px;font-size:0.8rem">Kopi</button>
+        <button class="btn btn-danger" onclick="sletTemplate(${r.id})" style="padding:4px 10px;font-size:0.8rem">Slet</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function visNyTemplate() {
+  redigerTemplateId = null;
+  document.getElementById('template-form-titel').textContent = 'Ny template';
+  document.getElementById('t-id').value = '';
+  document.getElementById('t-navn').value = '';
+  document.getElementById('t-type').value = '';
+  document.getElementById('t-beskrivelse').value = '';
+  document.getElementById('t-bredde').value = '18';
+  document.getElementById('t-hoejde').value = '8';
+  document.getElementById('t-th').value = '3.5';
+  document.getElementById('t-fxy').value = '12';
+  document.getElementById('t-fz').value = '40';
+  document.getElementById('t-rpm').value = '16000';
+  document.getElementById('t-zop').value = '5';
+  document.getElementById('t-prox').value = '1.5';
+  
+  document.getElementById('t-maskine').value = '';
+  document.getElementById('t-mark-aktiv').checked = true;
+  document.getElementById('t-mark-navn').value = 'Markering';
+  document.getElementById('t-mark-x').value = '0';
+  document.getElementById('t-mark-y').value = '0';
+  document.getElementById('t-mark-jus').value = 'venstre';
+  document.getElementById('t-mark-font').value = '';
+  document.getElementById('t-mark-hoejde').value = '';
+  document.getElementById('t-sys-aktiv').checked = true;
+  document.getElementById('t-sys-navn').value = 'System nr';
+  document.getElementById('t-sys-x').value = '0';
+  document.getElementById('t-sys-y').value = '5';
+  document.getElementById('t-sys-jus').value = 'venstre';
+  document.getElementById('t-sys-font').value = '';
+  document.getElementById('t-sys-hoejde').value = '';
+  document.getElementById('t-loebe-aktiv').checked = true;
+  document.getElementById('t-loebe-navn').value = 'Løbenr';
+  document.getElementById('t-loebe-x').value = '0';
+  document.getElementById('t-loebe-y').value = '0';
+  document.getElementById('t-loebe-jus').value = 'hoejre';
+  document.getElementById('t-loebe-font').value = '';
+  document.getElementById('t-loebe-hoejde').value = '';
+  document.getElementById('t-ekstra-aktiv').checked = false;
+  document.getElementById('t-ekstra-navn').value = 'Ekstra';
+  document.getElementById('t-ekstra-x').value = '0';
+  document.getElementById('t-ekstra-y').value = '10';
+  document.getElementById('t-ekstra-jus').value = 'venstre';
+  document.getElementById('t-ekstra-font').value = '';
+  document.getElementById('t-ekstra-hoejde').value = '';
+  document.getElementById('t-grid-kol').value = '5';
+  document.getElementById('t-grid-raek').value = '4';
+  gridSlots = [];
+  genererGrid();
+  document.getElementById('template-form').style.display = 'block';
+  skiftTab('t-basis');
+  setTimeout(opdaterPreview, 100);
+}
+
+async function redigerTemplate(id) {
+  redigerTemplateId = id;
+  // Hent altid frisk data fra API
+  const all = await api('/api/templates');
+  templates = all;
+  const tmpl = templates.find(t => t.id == id);
+  if (!tmpl) return;
+  
+  document.getElementById('template-form-titel').textContent = 'Rediger template';
+  document.getElementById('t-id').value = id;
+  document.getElementById('t-navn').value = tmpl.navn;
+  document.getElementById('t-type').value = tmpl.noejle_type;
+  document.getElementById('t-beskrivelse').value = tmpl.beskrivelse || '';
+  document.getElementById('t-bredde').value = tmpl.zone_bredde_mm;
+  document.getElementById('t-hoejde').value = tmpl.zone_hoejde_mm;
+  document.getElementById('t-th').value = tmpl.tekst_hoejde_mm;
+  document.getElementById('t-fxy').value = tmpl.feed_xy;
+  document.getElementById('t-fz').value = tmpl.feed_z;
+  document.getElementById('t-rpm').value = tmpl.spindle_rpm;
+  document.getElementById('t-zop').value = tmpl.z_op_mm;
+  document.getElementById('t-prox').value = tmpl.prox_offset_mm || 1.5;
+  
+  document.getElementById('t-maskine').value = tmpl.maskine_id || '';
+  document.getElementById('t-mark-aktiv').checked = !!tmpl.markering_aktiv;
+  document.getElementById('t-mark-navn').value = tmpl.markering_navn || 'Markering';
+  document.getElementById('t-mark-x').value = tmpl.markering_x || 0;
+  document.getElementById('t-mark-y').value = tmpl.markering_y || 0;
+  document.getElementById('t-mark-jus').value = tmpl.markering_justering || 'venstre';
+  document.getElementById('t-mark-font').value = tmpl.markering_font || '';
+  document.getElementById('t-mark-hoejde').value = tmpl.markering_hoejde_mm || '';
+  document.getElementById('t-sys-aktiv').checked = !!tmpl.system_aktiv;
+  document.getElementById('t-sys-navn').value = tmpl.system_navn || 'System nr';
+  document.getElementById('t-sys-x').value = tmpl.system_x || 0;
+  document.getElementById('t-sys-y').value = tmpl.system_y || 5;
+  document.getElementById('t-sys-jus').value = tmpl.system_justering || 'venstre';
+  document.getElementById('t-sys-font').value = tmpl.system_font || '';
+  document.getElementById('t-sys-hoejde').value = tmpl.system_hoejde_mm || '';
+  document.getElementById('t-loebe-aktiv').checked = !!tmpl.loebe_aktiv;
+  document.getElementById('t-loebe-navn').value = tmpl.loebe_navn || 'Løbenr';
+  document.getElementById('t-loebe-x').value = tmpl.loebe_x || 0;
+  document.getElementById('t-loebe-y').value = tmpl.loebe_y || 0;
+  document.getElementById('t-loebe-jus').value = tmpl.loebe_justering || 'hoejre';
+  document.getElementById('t-loebe-font').value = tmpl.loebe_font || '';
+  document.getElementById('t-loebe-hoejde').value = tmpl.loebe_hoejde_mm || '';
+  document.getElementById('t-ekstra-aktiv').checked = !!tmpl.ekstra_aktiv;
+  document.getElementById('t-ekstra-navn').value = tmpl.ekstra_navn || 'Ekstra';
+  document.getElementById('t-ekstra-x').value = tmpl.ekstra_x || 0;
+  document.getElementById('t-ekstra-y').value = tmpl.ekstra_y || 10;
+  document.getElementById('t-ekstra-jus').value = tmpl.ekstra_justering || 'venstre';
+  document.getElementById('t-ekstra-font').value = tmpl.ekstra_font || '';
+  document.getElementById('t-ekstra-hoejde').value = tmpl.ekstra_hoejde_mm || '';
+  
+  const grid = JSON.parse(tmpl.grid_json);
+  document.getElementById('t-grid-kol').value = grid.kolonner || 5;
+  document.getElementById('t-grid-raek').value = grid.raekker || 4;
+  gridSlots = grid.slots || [];
+  tegnGrid();
+  
+  document.getElementById('template-form').style.display = 'block';
+  skiftTab('t-basis');
+  setTimeout(opdaterPreview, 100);
+}
+
+function skjulTemplateForm() {
+  document.getElementById('template-form').style.display = 'none';
+  redigerTemplateId = null;
+}
+
+function genererGrid() {
+  const kol = +document.getElementById('t-grid-kol').value;
+  const raek = +document.getElementById('t-grid-raek').value;
+  gridSlots = [];
+  for (let r = 0; r < raek; r++) {
+    for (let c = 0; c < kol; c++) {
+      gridSlots.push({ nr: gridSlots.length + 1, x: c * 50 + 24, y: r * 66 + 11 });
+    }
+  }
+  tegnGrid();
+}
+
+function autoUdfyldGrid() {
+  const kol    = +document.getElementById('t-grid-kol').value;
+  const raek   = +document.getElementById('t-grid-raek').value;
+  const startX = +document.getElementById('t-auto-startx').value;
+  const startY = +document.getElementById('t-auto-starty').value;
+  const dx     = +document.getElementById('t-auto-dx').value;
+  const dy     = +document.getElementById('t-auto-dy').value;
+
+  gridSlots = [];
+  for (let r = 0; r < raek; r++) {
+    for (let c = 0; c < kol; c++) {
+      gridSlots.push({
+        nr: gridSlots.length + 1,
+        x: Math.round((startX + c * dx) * 10) / 10,
+        y: Math.round((startY + r * dy) * 10) / 10,
+      });
+    }
+  }
+  tegnGrid();
+}
+
+function tegnGrid() {
+  const tbody = document.getElementById('grid-tabel');
+  tbody.innerHTML = gridSlots.map((s, i) => `
+    <tr>
+      <td>${s.nr}</td>
+      <td><input type="number" value="${s.x}" step="0.1" style="width:80px;padding:4px;" onchange="gridSlots[${i}].x = +this.value"></td>
+      <td><input type="number" value="${s.y}" step="0.1" style="width:80px;padding:4px;" onchange="gridSlots[${i}].y = +this.value"></td>
+    </tr>
+  `).join('');
+}
+
+async function gemTemplate() {
+  try {
+    const kol = +document.getElementById('t-grid-kol').value;
+    const raek = +document.getElementById('t-grid-raek').value;
+    
+    const data = {
+      navn: document.getElementById('t-navn').value,
+      noejle_type: document.getElementById('t-type').value,
+      beskrivelse: document.getElementById('t-beskrivelse').value,
+      zone_bredde_mm: +document.getElementById('t-bredde').value,
+      zone_hoejde_mm: +document.getElementById('t-hoejde').value,
+      tekst_hoejde_mm: +document.getElementById('t-th').value,
+      linje_afstand: 1.5,
+      feed_xy: +document.getElementById('t-fxy').value,
+      feed_z: +document.getElementById('t-fz').value,
+      spindle_rpm: +document.getElementById('t-rpm').value,
+      z_op_mm: +document.getElementById('t-zop').value,
+      prox_offset_mm: +document.getElementById('t-prox').value,
+      font: 'block',
+      maskine_id: document.getElementById('t-maskine').value || null,
+      markering_aktiv: document.getElementById('t-mark-aktiv') ? (document.getElementById('t-mark-aktiv').checked ? 1 : 0) : 1,
+      markering_navn:  document.getElementById('t-mark-navn') ? document.getElementById('t-mark-navn').value : 'Markering',
+      markering_x: document.getElementById('t-mark-x') ? +document.getElementById('t-mark-x').value : 0,
+      markering_y: document.getElementById('t-mark-y') ? +document.getElementById('t-mark-y').value : 0,
+      markering_justering: document.getElementById('t-mark-jus') ? document.getElementById('t-mark-jus').value : 'venstre',
+      markering_font: document.getElementById('t-mark-font') ? (document.getElementById('t-mark-font').value || null) : null,
+      markering_hoejde_mm: document.getElementById('t-mark-hoejde') ? (+document.getElementById('t-mark-hoejde').value || 0) : 0,
+      system_aktiv: document.getElementById('t-sys-aktiv') ? (document.getElementById('t-sys-aktiv').checked ? 1 : 0) : 1,
+      system_navn:  document.getElementById('t-sys-navn') ? document.getElementById('t-sys-navn').value : 'System nr',
+      system_x: document.getElementById('t-sys-x') ? +document.getElementById('t-sys-x').value : 0,
+      system_y: document.getElementById('t-sys-y') ? +document.getElementById('t-sys-y').value : 5,
+      system_justering: document.getElementById('t-sys-jus') ? document.getElementById('t-sys-jus').value : 'venstre',
+      system_font: document.getElementById('t-sys-font') ? (document.getElementById('t-sys-font').value || null) : null,
+      system_hoejde_mm: document.getElementById('t-sys-hoejde') ? (+document.getElementById('t-sys-hoejde').value || 0) : 0,
+      loebe_aktiv: document.getElementById('t-loebe-aktiv') ? (document.getElementById('t-loebe-aktiv').checked ? 1 : 0) : 1,
+      loebe_navn:  document.getElementById('t-loebe-navn') ? document.getElementById('t-loebe-navn').value : 'Løbenr',
+      loebe_x: document.getElementById('t-loebe-x') ? +document.getElementById('t-loebe-x').value : 0,
+      loebe_y: document.getElementById('t-loebe-y') ? +document.getElementById('t-loebe-y').value : 0,
+      loebe_justering: document.getElementById('t-loebe-jus') ? document.getElementById('t-loebe-jus').value : 'hoejre',
+      loebe_font: document.getElementById('t-loebe-font') ? (document.getElementById('t-loebe-font').value || null) : null,
+      loebe_hoejde_mm: document.getElementById('t-loebe-hoejde') ? (+document.getElementById('t-loebe-hoejde').value || 0) : 0,
+      ekstra_aktiv: document.getElementById('t-ekstra-aktiv') ? (document.getElementById('t-ekstra-aktiv').checked ? 1 : 0) : 0,
+      ekstra_navn:  document.getElementById('t-ekstra-navn') ? document.getElementById('t-ekstra-navn').value : 'Ekstra',
+      ekstra_x: document.getElementById('t-ekstra-x') ? +document.getElementById('t-ekstra-x').value : 0,
+      ekstra_y: document.getElementById('t-ekstra-y') ? +document.getElementById('t-ekstra-y').value : 10,
+      ekstra_justering: document.getElementById('t-ekstra-jus') ? document.getElementById('t-ekstra-jus').value : 'venstre',
+      ekstra_font: document.getElementById('t-ekstra-font') ? (document.getElementById('t-ekstra-font').value || null) : null,
+      ekstra_hoejde_mm: document.getElementById('t-ekstra-hoejde') ? (+document.getElementById('t-ekstra-hoejde').value || 0) : 0,
+      grid: { kolonner: kol, raekker: raek, slots: gridSlots },
+    };
+    
+    let res;
+    if (redigerTemplateId) {
+      res = await api(`/api/templates/${redigerTemplateId}`, 'PUT', data);
+    } else {
+      res = await api('/api/templates', 'POST', data);
+    }
+    
+    if (res.ok) { 
+      await initDropdowns();
+      hentTemplates(); 
+      skjulTemplateForm();
+    } else {
+      alert('Fejl ved gem: ' + (res.fejl || JSON.stringify(res)));
+    }
+  } catch(e) {
+    alert('JavaScript fejl i gemTemplate: ' + e.message + '\n\nElement: ' + e.stack);
+  }
+}
+
+async function sletTemplate(id) {
+  if (!confirm('Slet denne template? Hvis den er i brug bliver den kun deaktiveret.')) return;
+  const res = await api(`/api/templates/${id}`, 'DELETE');
+  if (res.ok) {
+    await initDropdowns();
+    hentTemplates();
+  }
+}
+
+async function kopierTemplate(id) {
+  const all = await api('/api/templates');
+  templates = all;
+  const tmpl = templates.find(t => t.id == id);
+  if (!tmpl) return;
+
+  // Load som ny template med "Kopi af" prefix
+  redigerTemplateId = null;
+  document.getElementById('template-form-titel').textContent = 'Ny template (kopi)';
+  document.getElementById('t-navn').value = 'Kopi af ' + tmpl.navn;
+  document.getElementById('t-type').value = tmpl.noejle_type;
+  document.getElementById('t-beskrivelse').value = tmpl.beskrivelse || '';
+  document.getElementById('t-bredde').value = tmpl.zone_bredde_mm;
+  document.getElementById('t-hoejde').value = tmpl.zone_hoejde_mm;
+  document.getElementById('t-th').value = tmpl.tekst_hoejde_mm;
+  document.getElementById('t-fxy').value = tmpl.feed_xy;
+  document.getElementById('t-fz').value = tmpl.feed_z;
+  document.getElementById('t-rpm').value = tmpl.spindle_rpm;
+  document.getElementById('t-zop').value = tmpl.z_op_mm;
+  document.getElementById('t-prox').value = tmpl.prox_offset_mm || 1.5;
+  document.getElementById('t-maskine').value = tmpl.maskine_id || '';
+  document.getElementById('t-mark-aktiv').checked = !!tmpl.markering_aktiv;
+  document.getElementById('t-mark-navn').value = tmpl.markering_navn || 'Markering';
+  document.getElementById('t-mark-x').value = tmpl.markering_x || 0;
+  document.getElementById('t-mark-y').value = tmpl.markering_y || 0;
+  document.getElementById('t-mark-jus').value = tmpl.markering_justering || 'venstre';
+  document.getElementById('t-mark-font').value = tmpl.markering_font || '';
+  document.getElementById('t-mark-hoejde').value = tmpl.markering_hoejde_mm || '';
+  document.getElementById('t-sys-aktiv').checked = !!tmpl.system_aktiv;
+  document.getElementById('t-sys-navn').value = tmpl.system_navn || 'System nr';
+  document.getElementById('t-sys-x').value = tmpl.system_x || 0;
+  document.getElementById('t-sys-y').value = tmpl.system_y || 5;
+  document.getElementById('t-sys-jus').value = tmpl.system_justering || 'venstre';
+  document.getElementById('t-sys-font').value = tmpl.system_font || '';
+  document.getElementById('t-sys-hoejde').value = tmpl.system_hoejde_mm || '';
+  document.getElementById('t-loebe-aktiv').checked = !!tmpl.loebe_aktiv;
+  document.getElementById('t-loebe-navn').value = tmpl.loebe_navn || 'Løbenr';
+  document.getElementById('t-loebe-x').value = tmpl.loebe_x || 0;
+  document.getElementById('t-loebe-y').value = tmpl.loebe_y || 0;
+  document.getElementById('t-loebe-jus').value = tmpl.loebe_justering || 'hoejre';
+  document.getElementById('t-loebe-font').value = tmpl.loebe_font || '';
+  document.getElementById('t-loebe-hoejde').value = tmpl.loebe_hoejde_mm || '';
+  document.getElementById('t-ekstra-aktiv').checked = !!tmpl.ekstra_aktiv;
+  document.getElementById('t-ekstra-navn').value = tmpl.ekstra_navn || 'Ekstra';
+  document.getElementById('t-ekstra-x').value = tmpl.ekstra_x || 0;
+  document.getElementById('t-ekstra-y').value = tmpl.ekstra_y || 10;
+  document.getElementById('t-ekstra-jus').value = tmpl.ekstra_justering || 'venstre';
+  document.getElementById('t-ekstra-font').value = tmpl.ekstra_font || '';
+  document.getElementById('t-ekstra-hoejde').value = tmpl.ekstra_hoejde_mm || '';
+
+  const grid = JSON.parse(tmpl.grid_json);
+  document.getElementById('t-grid-kol').value = grid.kolonner || 5;
+  document.getElementById('t-grid-raek').value = grid.raekker || 4;
+  gridSlots = grid.slots ? JSON.parse(JSON.stringify(grid.slots)) : [];
+  tegnGrid();
+
+  document.getElementById('template-form').style.display = 'block';
+  skiftTab('t-basis');
+  setTimeout(opdaterPreview, 100);
+}
+
+async function sletSkiltTemplate(id) {
+  if (!confirm('Slet denne skilt-template?')) return;
+  const res = await api(`/api/skilt-templates/${id}`, 'DELETE');
+  if (res.ok) {
+    await initDropdowns();
+    hentSkiltTemplates();
+  }
+}
+
+// ─── Visualisering af felt-placering ─────────────────────────────────────────
+function opdaterPreview() {
+  const svg = document.getElementById('felt-preview');
+  if (!svg) return;
+  
+  const zoneB = +document.getElementById('t-bredde').value || 18;
+  const zoneH = +document.getElementById('t-hoejde').value || 8;
+  const th = +document.getElementById('t-th').value || 3.5;
+  
+  const felter = [
+    { aktiv: document.getElementById('t-mark-aktiv').checked,  navn: document.getElementById('t-mark-navn').value || 'Markering',
+      tekst: 'L1', x: +document.getElementById('t-mark-x').value, y: +document.getElementById('t-mark-y').value,
+      jus: document.getElementById('t-mark-jus').value, color: '#3498db',
+      font: document.getElementById('t-mark-font').value || 'block',
+      fth: +document.getElementById('t-mark-hoejde').value || th },
+    { aktiv: document.getElementById('t-sys-aktiv').checked, navn: document.getElementById('t-sys-navn').value || 'System',
+      tekst: 'A0938E', x: +document.getElementById('t-sys-x').value, y: +document.getElementById('t-sys-y').value,
+      jus: document.getElementById('t-sys-jus').value, color: '#27ae60',
+      font: document.getElementById('t-sys-font').value || 'block',
+      fth: +document.getElementById('t-sys-hoejde').value || th },
+    { aktiv: document.getElementById('t-loebe-aktiv').checked, navn: document.getElementById('t-loebe-navn').value || 'Løbenr',
+      tekst: '1', x: +document.getElementById('t-loebe-x').value, y: +document.getElementById('t-loebe-y').value,
+      jus: document.getElementById('t-loebe-jus').value, color: '#f39c12',
+      font: document.getElementById('t-loebe-font').value || 'block',
+      fth: +document.getElementById('t-loebe-hoejde').value || th },
+    { aktiv: document.getElementById('t-ekstra-aktiv').checked, navn: document.getElementById('t-ekstra-navn').value || 'Ekstra',
+      tekst: 'EKS', x: +document.getElementById('t-ekstra-x').value, y: +document.getElementById('t-ekstra-y').value,
+      jus: document.getElementById('t-ekstra-jus').value, color: '#9b59b6',
+      font: document.getElementById('t-ekstra-font').value || 'block',
+      fth: +document.getElementById('t-ekstra-hoejde').value || th },
+  ];
+  
+  const scale = 8;
+  const pad = 30;
+  const zoneW_px = zoneB * scale;
+  const zoneH_px = zoneH * scale + 60;
+  const svgW = Math.max(zoneW_px + pad * 2, 400);
+  const svgH = Math.max(zoneH_px + pad * 2, 250);
+  
+  svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+  svg.setAttribute('width', svgW);
+  svg.setAttribute('height', svgH);
+  
+  function calcX(offsetX, tekst, jus) {
+    const tw = tekst.length * th * 0.6;
+    if (jus === 'hoejre') return offsetX + zoneB - tw;
+    if (jus === 'center') return offsetX + (zoneB - tw) / 2;
+    return offsetX;
+  }
+  
+  const zoneX0 = pad;
+  const zoneY0 = pad;
+  
+  let html = '';
+  html += `<rect x="${zoneX0}" y="${zoneY0}" width="${zoneW_px}" height="${zoneH*scale}" fill="#e0e0e0" stroke="#999" stroke-dasharray="4,2"/>`;
+  html += `<rect x="${zoneX0}" y="${zoneY0 + zoneH*scale}" width="${zoneW_px}" height="60" fill="#f5f5f5" stroke="#ccc" stroke-dasharray="2,2"/>`;
+  
+  felter.forEach(f => {
+    if (!f.aktiv) return;
+    const fth = f.fth || th;
+    const cssFont = fontTilCSS(f.font);
+    const isItalic = fontErItalic(f.font);
+    const fx = calcX(f.x, f.tekst, f.jus);
+    const yPos = zoneY0 + f.y * scale + fth * scale;
+    html += `<text x="${zoneX0 + fx*scale}" y="${yPos}" font-size="${fth*scale}" fill="${f.color}" font-family="${cssFont}" font-style="${isItalic?'italic':'normal'}">${f.tekst}</text>`;
+    html += `<circle cx="${zoneX0 + fx*scale}" cy="${yPos}" r="3" fill="${f.color}"/>`;
+    html += `<text x="${zoneX0 + fx*scale + 8}" y="${yPos - fth*scale - 2}" font-size="8" fill="${f.color}" font-family="sans-serif">${f.navn}</text>`;
+  });
+  
+  html += `<circle cx="${zoneX0}" cy="${zoneY0}" r="4" fill="#e94560" stroke="#fff" stroke-width="1"/>`;
+  html += `<text x="${zoneX0 - 25}" y="${zoneY0 - 5}" font-size="10" fill="#666">0,0</text>`;
+  html += `<text x="${zoneX0 + zoneW_px/2}" y="${zoneY0 - 8}" font-size="10" fill="#666" text-anchor="middle">Zone: ${zoneB}×${zoneH} mm</text>`;
+  
+  svg.innerHTML = html;
+}
+
+// ─── Skilt-Templates ──────────────────────────────────────────────────────────
+async function hentSkiltTemplates() {
+  const rows = await api('/api/skilt-templates');
+  skiltTemplates = rows; // opdater state så redigerSkiltTemplate kan finde dem
+  document.getElementById('skilt-template-tabel').innerHTML = rows.map(r => `<tr>
+    <td>#${r.id}</td>
+    <td class="clickable" onclick="redigerSkiltTemplate(${r.id})">${r.navn}</td>
+    <td>${r.skilt_bredde_mm}×${r.skilt_hoejde_mm} mm</td><td>${r.antal_linjer} linjer</td>
+    <td class="gap">
+      <button class="btn btn-secondary" onclick="redigerSkiltTemplate(${r.id})" style="padding:4px 10px;font-size:0.8rem">Rediger</button>
+      <button class="btn btn-danger" onclick="sletSkiltTemplate(${r.id})" style="padding:4px 10px;font-size:0.8rem">Slet</button>
+    </td>
+  </tr>`).join('');
+}
+
+function visNySkiltTemplate() {
+  redigerSkiltTemplateId = null;
+  linjeConfig = [];
+  document.getElementById('skilt-template-form-titel').textContent = 'Ny skilt-template';
+  document.getElementById('st-id').value = '';
+  document.getElementById('st-navn').value = '';
+  document.getElementById('st-beskrivelse').value = '';
+  document.getElementById('st-bredde').value = '200';
+  document.getElementById('st-hoejde').value = '100';
+  document.getElementById('st-antal').value = '2';
+  document.getElementById('st-maskine').value = '';
+  document.getElementById('st-margin-top').value = '';
+  document.getElementById('st-margin-bund').value = '';
+  document.getElementById('st-linje-afstand').value = '';
+  opdaterLinjeConfig();
+  document.getElementById('skilt-template-form').style.display = 'block';
+}
+
+async function redigerSkiltTemplate(id) {
+  redigerSkiltTemplateId = id;
+  // Hent altid frisk data fra API
+  const all = await api('/api/skilt-templates');
+  skiltTemplates = all;
+  const tmpl = skiltTemplates.find(t => t.id == id);
+  if (!tmpl) return;
+  
+  document.getElementById('skilt-template-form-titel').textContent = 'Rediger skilt-template';
+  document.getElementById('st-id').value = id;
+  document.getElementById('st-navn').value = tmpl.navn;
+  document.getElementById('st-beskrivelse').value = tmpl.beskrivelse || '';
+  document.getElementById('st-bredde').value = tmpl.skilt_bredde_mm;
+  document.getElementById('st-hoejde').value = tmpl.skilt_hoejde_mm;
+  document.getElementById('st-antal').value = tmpl.antal_linjer;
+  document.getElementById('st-maskine').value = tmpl.maskine_id || '';
+  document.getElementById('st-margin-top').value    = tmpl.margin_top_mm || '';
+  document.getElementById('st-margin-bund').value   = tmpl.margin_bottom_mm || '';
+  document.getElementById('st-linje-afstand').value = tmpl.linje_afstand_mm || '';
+  opdaterLinjeConfig(JSON.parse(tmpl.linjer_config));
+  document.getElementById('skilt-template-form').style.display = 'block';
+}
+
+async function testMaskine() {
+  const id = document.getElementById('k-id').value;
+  const status = document.getElementById('k-status');
+  status.textContent = '⏳ Sender test-kommando...';
+  status.style.color = 'var(--text-secondary)';
+  const res = await api(`/api/maskiner/${id}/test`, 'POST');
+  if (res.ok) {
+    status.textContent = '✓ Maskinen kører til kalibreret position (0,0) med Z oppe';
+    status.style.color = '#27ae60';
+  } else {
+    status.textContent = `✗ Fejl: ${res.fejl}`;
+    status.style.color = 'var(--accent)';
+  }
+}
+
+function skjulSkiltTemplateForm() {
+  document.getElementById('skilt-template-form').style.display = 'none';
+  redigerSkiltTemplateId = null;
+}
+
+let linjeConfig = [];
+
+function opdaterLinjeConfig(existing = null) {
+  const antal = +document.getElementById('st-antal').value;
+  if (existing) {
+    linjeConfig = existing;
+  } else {
+    // Bevar eksisterende linjer, tilføj eller fjern efter behov
+    while (linjeConfig.length < antal) {
+      linjeConfig.push({ justering: 'center', hoejde_mm: 10, font: 'block' });
+    }
+    linjeConfig = linjeConfig.slice(0, antal);
+  }
+  tegnLinjeConfig();
+}
+
+function tegnLinjeConfig() {
+  const container = document.getElementById('st-linjer-container');
+  container.innerHTML = linjeConfig.map((l, i) => `
+    <div style="background:var(--bg-primary);padding:10px;border-radius:6px;margin-bottom:8px;border:1px solid var(--border);">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;margin-bottom:6px;">
+        <div><label>Linje ${i+1}</label></div>
+        <div>
+          <label>Justering</label>
+          <select onchange="linjeConfig[${i}].justering = this.value">
+            <option value="venstre" ${l.justering==='venstre'?'selected':''}>Venstre</option>
+            <option value="center" ${l.justering==='center'?'selected':''}>Center</option>
+            <option value="hoejre" ${l.justering==='hoejre'?'selected':''}>Højre</option>
+          </select>
+        </div>
+        <div>
+          <label>Font</label>
+          <select onchange="linjeConfig[${i}].font = this.value">
+            ${Object.entries(fonts).map(([k,v]) => `<option value="${k}" ${l.font===k?'selected':''}>${v}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label>Højde (mm)</label>
+          <input type="number" value="${l.hoejde_mm||10}" step="0.5" onchange="linjeConfig[${i}].hoejde_mm = +this.value">
+        </div>
+        <div><label>&nbsp;</label><button class="btn btn-danger" onclick="fjernLinjeConfig(${i})" style="padding:8px 12px;">✕</button></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:8px;">
+        <div>
+          <label style="color:#3498db;">X (mm) <span style="font-weight:normal;font-size:0.7rem;">tom=auto</span></label>
+          <input type="number" value="${l.x_mm!=null?l.x_mm:''}" step="0.5" placeholder="Auto" onchange="linjeConfig[${i}].x_mm = this.value!==''?+this.value:null">
+        </div>
+        <div>
+          <label style="color:#e74c3c;">Y (mm) <span style="font-weight:normal;font-size:0.7rem;">tom=auto</span></label>
+          <input type="number" value="${l.y_mm!=null?l.y_mm:''}" step="0.5" placeholder="Auto" onchange="linjeConfig[${i}].y_mm = this.value!==''?+this.value:null">
+        </div>
+        <div style="display:flex;align-items:flex-end;padding-bottom:2px;">
+          <span style="font-size:0.75rem;color:var(--text-secondary);">Tom = auto placering fra margener</span>
+        </div>
+      </div>
+    </div>
+  `).join('') + `
+  <div class="mt gap">
+    <button class="btn btn-secondary" onclick="tilfoejLinjeConfig()">+ Tilføj linje</button>
+    <span style="color:var(--text-secondary);font-size:0.8rem;">(${linjeConfig.length} linjer)</span>
+  </div>`;
+}
+
+function tilfoejLinjeConfig() {
+  if (linjeConfig.length >= 10) return;
+  linjeConfig.push({ justering: 'center', hoejde_mm: 10, font: 'block', x_mm: null, y_mm: null });
+  document.getElementById('st-antal').value = linjeConfig.length;
+  tegnLinjeConfig();
+}
+
+function fjernLinjeConfig(idx) {
+  if (linjeConfig.length <= 1) return;
+  linjeConfig.splice(idx, 1);
+  document.getElementById('st-antal').value = linjeConfig.length;
+  tegnLinjeConfig();
+}
+
+async function gemSkiltTemplate() {
+  const mtVal = document.getElementById('st-margin-top').value;
+  const mbVal = document.getElementById('st-margin-bund').value;
+  const laVal = document.getElementById('st-linje-afstand').value;
+
+  const data = {
+    navn: document.getElementById('st-navn').value,
+    beskrivelse: document.getElementById('st-beskrivelse').value,
+    skilt_bredde_mm: +document.getElementById('st-bredde').value,
+    skilt_hoejde_mm: +document.getElementById('st-hoejde').value,
+    antal_linjer: +document.getElementById('st-antal').value,
+    linjer_config: linjeConfig,
+    margin_top_mm: mtVal ? +mtVal : null,
+    margin_bottom_mm: mbVal ? +mbVal : null,
+    linje_afstand_mm: laVal ? +laVal : null,
+    maskine_id: document.getElementById('st-maskine').value || null,
+  };
+  
+  let res;
+  if (redigerSkiltTemplateId) {
+    res = await api(`/api/skilt-templates/${redigerSkiltTemplateId}`, 'PUT', data);
+  } else {
+    res = await api('/api/skilt-templates', 'POST', data);
+  }
+  
+  if (res.ok) { 
+    await initDropdowns();
+    hentSkiltTemplates(); 
+    skjulSkiltTemplateForm(); 
+  }
+}
+
+// ─── Maskiner ─────────────────────────────────────────────────────────────────
+async function hentMaskiner() {
+  const rows = await api('/api/maskiner');
+  document.getElementById('maskiner-tabel').innerHTML = rows.map(r => `<tr>
+    <td>#${r.id}</td><td>${r.navn}</td><td>${r.model}</td><td>${r.ip}</td><td>${r.port}</td>
+    <td>${r.offset_x || 0} mm</td><td>${r.offset_y || 0} mm</td><td>${r.offset_z || 0} mm</td>
+    <td><button class="btn btn-secondary" onclick="redigerKalibrering(${r.id}, '${r.navn}', ${r.offset_x||0}, ${r.offset_y||0}, ${r.offset_z||0})" style="padding:4px 10px;font-size:0.8rem">Kalibrér</button></td>
+  </tr>`).join('');
+}
+
+function redigerKalibrering(id, navn, ox, oy, oz) {
+  document.getElementById('kalibrering-titel').textContent = `Kalibrering — ${navn}`;
+  document.getElementById('k-id').value = id;
+  document.getElementById('k-x').value = ox;
+  document.getElementById('k-y').value = oy;
+  document.getElementById('k-z').value = oz;
+  document.getElementById('k-status').textContent = '';
+  document.getElementById('kalibrering-form').style.display = 'block';
+  document.getElementById('kalibrering-form').scrollIntoView({behavior:'smooth'});
+}
+
+async function gemKalibrering() {
+  const id = document.getElementById('k-id').value;
+  const res = await api(`/api/maskiner/${id}/kalibrering`, 'PUT', {
+    offset_x: +document.getElementById('k-x').value,
+    offset_y: +document.getElementById('k-y').value,
+    offset_z: +document.getElementById('k-z').value,
+  });
+  if (res.ok) {
+    document.getElementById('k-status').textContent = '✓ Gemt';
+    document.getElementById('k-status').style.color = 'var(--accent)';
+    await initDropdowns();
+    hentMaskiner();
+  }
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+(async () => {
+  await initDropdowns();
+  opdaterJobFelter();
+  initSkilt();
+})();
+</script>
+</body>
+</html>
