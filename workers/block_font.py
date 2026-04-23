@@ -61,19 +61,19 @@ GLYPHS = {
 
 CHAR_MAP = {'Æ': 'AE', 'æ': 'AE', 'Ø': 'OE', 'ø': 'OE', 'Å': 'AA', 'å': 'AA'}
 
-def get_strokes(tekst, tekst_hoejde_mm):
+def get_strokes(tekst, tekst_hoejde_mm, bogstav_afstand_mm=0.0):
     scale = tekst_hoejde_mm / H
     x_cursor = 0.0
     all_strokes = []
     for ch in tekst.upper():
         key = CHAR_MAP.get(ch, ch)
         if key not in GLYPHS:
-            x_cursor += (W + G) * scale
+            x_cursor += (W + G) * scale + bogstav_afstand_mm
             continue
         for stroke in GLYPHS[key]:
             scaled = [(x_cursor + x * scale, y * scale) for (x, y) in stroke]
             all_strokes.append(scaled)
         extra = 1.1 if key == 'AE' else 1.0
-        x_cursor += (W * extra + G) * scale
-    total_w = x_cursor - G * scale if all_strokes else 0
+        x_cursor += (W * extra + G) * scale + bogstav_afstand_mm
+    total_w = x_cursor - G * scale - bogstav_afstand_mm if all_strokes else 0
     return all_strokes, total_w
