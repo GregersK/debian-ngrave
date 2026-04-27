@@ -45,30 +45,32 @@ def byg_job_cmds(job, tmpl):
 
     felter = []
     if tmpl.get('markering_aktiv', 1):
-        felter.append(('type_felt', tmpl.get('markering_x',0), tmpl.get('markering_y',0), tmpl.get('markering_justering','venstre'),
+        felter.append(('type_felt', 'markering', tmpl.get('markering_x',0), tmpl.get('markering_y',0), tmpl.get('markering_justering','venstre'),
                        tmpl.get('markering_font') or font, float(tmpl.get('markering_hoejde_mm') or 0) or th,
                        float(tmpl.get('markering_bogstav_afstand_mm') or 0)))
     if tmpl.get('system_aktiv', 1):
-        felter.append(('system_nr', tmpl.get('system_x',0), tmpl.get('system_y',5), tmpl.get('system_justering','venstre'),
+        felter.append(('system_nr', 'system', tmpl.get('system_x',0), tmpl.get('system_y',5), tmpl.get('system_justering','venstre'),
                        tmpl.get('system_font') or font, float(tmpl.get('system_hoejde_mm') or 0) or th,
                        float(tmpl.get('system_bogstav_afstand_mm') or 0)))
     if tmpl.get('loebe_aktiv', 1):
-        felter.append(('loebe_nr', tmpl.get('loebe_x',0), tmpl.get('loebe_y',0), tmpl.get('loebe_justering','hoejre'),
+        felter.append(('loebe_nr', 'loebe', tmpl.get('loebe_x',0), tmpl.get('loebe_y',0), tmpl.get('loebe_justering','hoejre'),
                        tmpl.get('loebe_font') or font, float(tmpl.get('loebe_hoejde_mm') or 0) or th,
                        float(tmpl.get('loebe_bogstav_afstand_mm') or 0)))
     if tmpl.get('ekstra_aktiv', 0):
-        felter.append(('ekstra_tekst', tmpl.get('ekstra_x',0), tmpl.get('ekstra_y',10), tmpl.get('ekstra_justering','venstre'),
+        felter.append(('ekstra_tekst', 'ekstra', tmpl.get('ekstra_x',0), tmpl.get('ekstra_y',10), tmpl.get('ekstra_justering','venstre'),
                        tmpl.get('ekstra_font') or font, float(tmpl.get('ekstra_hoejde_mm') or 0) or th,
                        float(tmpl.get('ekstra_bogstav_afstand_mm') or 0)))
 
     cmds = []
-    for felt_navn, fx, fy, fjus, ffont, fth, fafstand in felter:
+    for felt_navn, felt_key, fx, fy, fjus, ffont, fth, fafstand in felter:
         tekst = job.get(felt_navn, '') or ''
         if not tekst.strip():
             continue
         strokes, bredde = get_strokes(tekst, fth, ffont, fafstand)
-        x = juster_x(sx + float(fx), tekst, fjus, ffont, fth, fafstand)
-        y = sy - float(fy) if spejl_y else sy + float(fy)
+        dx = float(tmpl.get(f'felt_{felt_key}_dx') or 0)
+        dy = float(tmpl.get(f'felt_{felt_key}_dy') or 0)
+        x = juster_x(sx + float(fx) + dx, tekst, fjus, ffont, fth, fafstand)
+        y = sy - (float(fy) + dy) if spejl_y else sy + float(fy) + dy
         cmds += strokes_til_cipher(strokes, x, y, spejl_y)
 
     return cmds

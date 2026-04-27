@@ -568,8 +568,10 @@ tr:hover td { background: var(--hover); }
     <h2 id="kalibrering-titel">Kalibrering</h2>
     <input type="hidden" id="k-id">
     <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:16px;">
-      Offset lægges til alle koordinater for denne maskine. Positiv X = højre, positiv Y = frem, positiv Z = dybere.
+      Globalt offset lægges til alle koordinater. Per-felt offset korrigerer individuelle felters position (f.eks. skæv nøgle på S3).
     </p>
+
+    <h3 style="font-size:0.9rem;margin-bottom:10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;">Globalt offset</h3>
     <div class="form-grid">
       <div>
         <label>Offset X (mm)</label>
@@ -591,6 +593,41 @@ tr:hover td { background: var(--hover); }
         <label for="k-spejl-y" style="margin:0;cursor:pointer;">Spejl Y-akse (CIPHER/S3)</label>
       </div>
     </div>
+
+    <h3 style="font-size:0.9rem;margin:18px 0 10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;">Per-felt korrektion (CIPHER/S3)</h3>
+    <p style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:12px;">Finindstilling per felt — korrigerer for fysisk skævhed på maskinen. Lægges oven i feltets template-position.</p>
+    <table style="width:100%;font-size:0.85rem;border-collapse:collapse;">
+      <thead>
+        <tr style="color:var(--text-secondary);text-align:left;">
+          <th style="padding:4px 8px;">Felt</th>
+          <th style="padding:4px 8px;">ΔX (mm)</th>
+          <th style="padding:4px 8px;">ΔY (mm)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="padding:4px 8px;">Markering</td>
+          <td style="padding:4px 8px;"><input id="k-markering-dx" type="number" value="0" step="0.1" style="width:90px;"></td>
+          <td style="padding:4px 8px;"><input id="k-markering-dy" type="number" value="0" step="0.1" style="width:90px;"></td>
+        </tr>
+        <tr>
+          <td style="padding:4px 8px;">System nr</td>
+          <td style="padding:4px 8px;"><input id="k-system-dx" type="number" value="0" step="0.1" style="width:90px;"></td>
+          <td style="padding:4px 8px;"><input id="k-system-dy" type="number" value="0" step="0.1" style="width:90px;"></td>
+        </tr>
+        <tr>
+          <td style="padding:4px 8px;">Løbenr</td>
+          <td style="padding:4px 8px;"><input id="k-loebe-dx" type="number" value="0" step="0.1" style="width:90px;"></td>
+          <td style="padding:4px 8px;"><input id="k-loebe-dy" type="number" value="0" step="0.1" style="width:90px;"></td>
+        </tr>
+        <tr>
+          <td style="padding:4px 8px;">Ekstra</td>
+          <td style="padding:4px 8px;"><input id="k-ekstra-dx" type="number" value="0" step="0.1" style="width:90px;"></td>
+          <td style="padding:4px 8px;"><input id="k-ekstra-dy" type="number" value="0" step="0.1" style="width:90px;"></td>
+        </tr>
+      </tbody>
+    </table>
+
     <div class="mt gap">
       <button class="btn btn-primary" onclick="gemKalibrering()">Gem kalibrering</button>
       <button class="btn btn-secondary" onclick="testMaskine()">▶ Test position</button>
@@ -1722,17 +1759,28 @@ async function hentMaskiner() {
     <td>#${r.id}</td><td>${r.navn}</td><td>${r.model}</td><td>${r.ip}</td><td>${r.port}</td>
     <td>${r.offset_x || 0} mm</td><td>${r.offset_y || 0} mm</td><td>${r.offset_z || 0} mm</td>
     <td>${r.spejl_y ? '✓' : '—'}</td>
-    <td><button class="btn btn-secondary" onclick="redigerKalibrering(${r.id}, '${r.navn}', ${r.offset_x||0}, ${r.offset_y||0}, ${r.offset_z||0}, ${r.spejl_y||0})" style="padding:4px 10px;font-size:0.8rem">Kalibrér</button></td>
+    <td><button class="btn btn-secondary" onclick="redigerKalibrering(${r.id})" style="padding:4px 10px;font-size:0.8rem">Kalibrér</button></td>
   </tr>`).join('');
 }
 
-function redigerKalibrering(id, navn, ox, oy, oz, spejlY) {
-  document.getElementById('kalibrering-titel').textContent = `Kalibrering — ${navn}`;
-  document.getElementById('k-id').value = id;
-  document.getElementById('k-x').value = ox;
-  document.getElementById('k-y').value = oy;
-  document.getElementById('k-z').value = oz;
-  document.getElementById('k-spejl-y').checked = !!spejlY;
+async function redigerKalibrering(id) {
+  const rows = await api('/api/maskiner');
+  const r = rows.find(m => m.id === id);
+  if (!r) return;
+  document.getElementById('kalibrering-titel').textContent = `Kalibrering — ${r.navn}`;
+  document.getElementById('k-id').value = r.id;
+  document.getElementById('k-x').value = r.offset_x || 0;
+  document.getElementById('k-y').value = r.offset_y || 0;
+  document.getElementById('k-z').value = r.offset_z || 0;
+  document.getElementById('k-spejl-y').checked = !!r.spejl_y;
+  document.getElementById('k-markering-dx').value = r.felt_markering_dx || 0;
+  document.getElementById('k-markering-dy').value = r.felt_markering_dy || 0;
+  document.getElementById('k-system-dx').value    = r.felt_system_dx    || 0;
+  document.getElementById('k-system-dy').value    = r.felt_system_dy    || 0;
+  document.getElementById('k-loebe-dx').value     = r.felt_loebe_dx     || 0;
+  document.getElementById('k-loebe-dy').value     = r.felt_loebe_dy     || 0;
+  document.getElementById('k-ekstra-dx').value    = r.felt_ekstra_dx    || 0;
+  document.getElementById('k-ekstra-dy').value    = r.felt_ekstra_dy    || 0;
   document.getElementById('k-status').textContent = '';
   document.getElementById('kalibrering-form').style.display = 'block';
   document.getElementById('kalibrering-form').scrollIntoView({behavior:'smooth'});
@@ -1745,6 +1793,14 @@ async function gemKalibrering() {
     offset_y: +document.getElementById('k-y').value,
     offset_z: +document.getElementById('k-z').value,
     spejl_y:  document.getElementById('k-spejl-y').checked,
+    felt_markering_dx: +document.getElementById('k-markering-dx').value,
+    felt_markering_dy: +document.getElementById('k-markering-dy').value,
+    felt_system_dx:    +document.getElementById('k-system-dx').value,
+    felt_system_dy:    +document.getElementById('k-system-dy').value,
+    felt_loebe_dx:     +document.getElementById('k-loebe-dx').value,
+    felt_loebe_dy:     +document.getElementById('k-loebe-dy').value,
+    felt_ekstra_dx:    +document.getElementById('k-ekstra-dx').value,
+    felt_ekstra_dy:    +document.getElementById('k-ekstra-dy').value,
   });
   if (res.ok) {
     document.getElementById('k-status').textContent = '✓ Gemt';
