@@ -6,7 +6,7 @@ SPM = 40  # steps per mm
 
 def s(v): return round(v * SPM)
 
-def strokes_til_cipher(strokes, x_offset, y_offset):
+def strokes_til_cipher(strokes, x_offset, y_offset, spejl_y=False):
     """Konverterer stroke-liste til CIPHER CEF kommandoer."""
     cmds = []
     pen = False
@@ -14,7 +14,7 @@ def strokes_til_cipher(strokes, x_offset, y_offset):
         if not stroke: continue
         for i, (sx, sy) in enumerate(stroke):
             gx = s(x_offset + sx)
-            gy = s(y_offset + sy)
+            gy = s(y_offset - sy) if spejl_y else s(y_offset + sy)
             if i == 0:
                 if pen:
                     cmds.append("PU")
@@ -30,9 +30,10 @@ def strokes_til_cipher(strokes, x_offset, y_offset):
 
 def byg_job_cmds(job, tmpl):
     """Bygger CIPHER kommandoer for ét job (uden IN/FR og afslutning)."""
-    zw  = tmpl['zone_bredde_mm']
-    th  = tmpl['tekst_hoejde_mm']
-    font = tmpl.get('font', 'block') or 'block'
+    zw      = tmpl['zone_bredde_mm']
+    th      = tmpl['tekst_hoejde_mm']
+    font    = tmpl.get('font', 'block') or 'block'
+    spejl_y = bool(tmpl.get('spejl_y', False))
     sx  = job['slot_x_mm'] + float(tmpl.get('offset_x') or 0)
     sy  = job['slot_y_mm'] + float(tmpl.get('offset_y') or 0)
 
@@ -67,14 +68,14 @@ def byg_job_cmds(job, tmpl):
             continue
         strokes, bredde = get_strokes(tekst, fth, ffont, fafstand)
         x = juster_x(sx + float(fx), tekst, fjus, ffont, fth, fafstand)
-        y = sy + float(fy)
-        cmds += strokes_til_cipher(strokes, x, y)
+        y = sy - float(fy) if spejl_y else sy + float(fy)
+        cmds += strokes_til_cipher(strokes, x, y, spejl_y)
 
     return cmds
 
 def byg_job(job, tmpl):
     """Bygger komplet CIPHER streng for ét enkelt job."""
-    f = tmpl['feed_xy']
+    f   = tmpl['feed_xy']
     cmds = ["IN", "ZD0", f"FR{f}"]
     cmds += byg_job_cmds(job, tmpl)
     cmds.append("PA0,0")
@@ -82,7 +83,7 @@ def byg_job(job, tmpl):
 
 def byg_batch(jobs, tmpl):
     """Bygger ét samlet CIPHER program for alle jobs i batchen."""
-    f = tmpl['feed_xy']
+    f   = tmpl['feed_xy']
     cmds = ["IN", "ZD0", f"FR{f}"]
     for job in jobs:
         cmds += byg_job_cmds(job, tmpl)

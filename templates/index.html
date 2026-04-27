@@ -559,7 +559,7 @@ tr:hover td { background: var(--hover); }
     <h2>Maskiner</h2>
     <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:12px;">IP/port/protokol redigeres via SQL. Kalibrering redigeres herunder.</p>
     <table>
-      <thead><tr><th>ID</th><th>Navn</th><th>Model</th><th>IP</th><th>Port</th><th>Offset X</th><th>Offset Y</th><th>Offset Z</th><th></th></tr></thead>
+      <thead><tr><th>ID</th><th>Navn</th><th>Model</th><th>IP</th><th>Port</th><th>Offset X</th><th>Offset Y</th><th>Offset Z</th><th>Spejl Y</th><th></th></tr></thead>
       <tbody id="maskiner-tabel"></tbody>
     </table>
   </div>
@@ -585,6 +585,10 @@ tr:hover td { background: var(--hover); }
         <label>Offset Z (mm)</label>
         <input id="k-z" type="number" value="0" step="0.1">
         <p style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;">+ = dybere &nbsp; - = lavere</p>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+        <input type="checkbox" id="k-spejl-y" style="width:auto;margin:0;">
+        <label for="k-spejl-y" style="margin:0;cursor:pointer;">Spejl Y-akse (CIPHER/S3)</label>
       </div>
     </div>
     <div class="mt gap">
@@ -1717,16 +1721,18 @@ async function hentMaskiner() {
   document.getElementById('maskiner-tabel').innerHTML = rows.map(r => `<tr>
     <td>#${r.id}</td><td>${r.navn}</td><td>${r.model}</td><td>${r.ip}</td><td>${r.port}</td>
     <td>${r.offset_x || 0} mm</td><td>${r.offset_y || 0} mm</td><td>${r.offset_z || 0} mm</td>
-    <td><button class="btn btn-secondary" onclick="redigerKalibrering(${r.id}, '${r.navn}', ${r.offset_x||0}, ${r.offset_y||0}, ${r.offset_z||0})" style="padding:4px 10px;font-size:0.8rem">Kalibrér</button></td>
+    <td>${r.spejl_y ? '✓' : '—'}</td>
+    <td><button class="btn btn-secondary" onclick="redigerKalibrering(${r.id}, '${r.navn}', ${r.offset_x||0}, ${r.offset_y||0}, ${r.offset_z||0}, ${r.spejl_y||0})" style="padding:4px 10px;font-size:0.8rem">Kalibrér</button></td>
   </tr>`).join('');
 }
 
-function redigerKalibrering(id, navn, ox, oy, oz) {
+function redigerKalibrering(id, navn, ox, oy, oz, spejlY) {
   document.getElementById('kalibrering-titel').textContent = `Kalibrering — ${navn}`;
   document.getElementById('k-id').value = id;
   document.getElementById('k-x').value = ox;
   document.getElementById('k-y').value = oy;
   document.getElementById('k-z').value = oz;
+  document.getElementById('k-spejl-y').checked = !!spejlY;
   document.getElementById('k-status').textContent = '';
   document.getElementById('kalibrering-form').style.display = 'block';
   document.getElementById('kalibrering-form').scrollIntoView({behavior:'smooth'});
@@ -1738,6 +1744,7 @@ async function gemKalibrering() {
     offset_x: +document.getElementById('k-x').value,
     offset_y: +document.getElementById('k-y').value,
     offset_z: +document.getElementById('k-z').value,
+    spejl_y:  document.getElementById('k-spejl-y').checked,
   });
   if (res.ok) {
     document.getElementById('k-status').textContent = '✓ Gemt';

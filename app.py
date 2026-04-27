@@ -35,6 +35,7 @@ def migrate_db():
         ("maskiner",    "offset_x",           "REAL NOT NULL DEFAULT 0.0"),
         ("maskiner",    "offset_y",           "REAL NOT NULL DEFAULT 0.0"),
         ("maskiner",    "offset_z",           "REAL NOT NULL DEFAULT 0.0"),
+        ("maskiner",    "spejl_y",            "INTEGER NOT NULL DEFAULT 0"),
         ("templates",   "markering_justering","TEXT NOT NULL DEFAULT 'venstre'"),
         ("templates",   "system_justering",   "TEXT NOT NULL DEFAULT 'venstre'"),
         ("templates",   "linje_afstand",      "REAL NOT NULL DEFAULT 1.5"),
@@ -135,6 +136,7 @@ def queue_worker():
                     tmpl['offset_x'] = maskine.get('offset_x', 0.0) or 0.0
                     tmpl['offset_y'] = maskine.get('offset_y', 0.0) or 0.0
                     tmpl['offset_z'] = maskine.get('offset_z', 0.0) or 0.0
+                    tmpl['spejl_y']  = bool(maskine.get('spejl_y', 0))
 
                     try:
                         if maskine['protokol'] == 'gcode':
@@ -202,8 +204,8 @@ def get_maskiner():
 def kalibrering(id):
     d = request.json
     db = get_db()
-    db.execute("UPDATE maskiner SET offset_x=?, offset_y=?, offset_z=? WHERE id=?",
-               (d.get('offset_x', 0), d.get('offset_y', 0), d.get('offset_z', 0), id))
+    db.execute("UPDATE maskiner SET offset_x=?, offset_y=?, offset_z=?, spejl_y=? WHERE id=?",
+               (d.get('offset_x', 0), d.get('offset_y', 0), d.get('offset_z', 0), 1 if d.get('spejl_y') else 0, id))
     db.commit()
     return jsonify({'ok': True})
 
