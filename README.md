@@ -100,7 +100,7 @@ Konfigurer under **Services → Serial Utilities → Over IP**:
 - Mode: TCP Server
 - Protocol: Raw TCP
 - Port: 5000
-- Baud rate: 9600 (tjek S3-manual)
+- Baud rate: 57600
 - Data bits: 8 / Parity: None / Stop bits: 1
 
 DB9 pinout: Pin 2 (RX) → S3 TX, Pin 3 (TX) → S3 RX, Pin 5 (GND) → S3 GND
