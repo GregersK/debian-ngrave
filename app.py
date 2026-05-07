@@ -1,33 +1,104 @@
 """
-Gravesystem v4 - Flask Server
+nGrave - Flask Server
 """
-import json, sqlite3, threading, time, os
+import json, sqlite3, threading, time, os, signal, logging, secrets
 from datetime import datetime
-from flask import Flask, request, jsonify, render_template, g
-
-from workers.gcode_worker  import byg_job as byg_gcode,  send as send_gcode
-from workers.cipher_worker import byg_job as byg_cipher, send as send_cipher
+from functools import wraps
+from flask import Flask, request, jsonify, render_template, g, Response
 
 app = Flask(__name__)
-DB  = os.path.join(os.path.dirname(__file__), 'gravesystem.db')
+app.logger.setLevel(logging.INFO)
 
-# ─── Database ─────────────────────────────────────────────────────────────────
+DB = os.environ.get('NGRAVE_DB', os.path.join(os.path.dirname(__file__), 'ngrave.db'))
+PORT = int(os.environ.get('NGRAVE_PORT', '8080'))
+HOST = os.environ.get('NGRAVE_HOST', '0.0.0.0')
+AUTH_USER = os.environ.get('NGRAVE_AUTH_USER') or ''
+AUTH_PASS = os.environ.get('NGRAVE_AUTH_PASS') or ''
+
+# ─── Auth ───────────────────────────────────────────────────────────────
+def _check_auth(user, pw):
+    if not AUTH_USER or not AUTH_PASS:
+        return True  # auth deaktiveret (logget ved opstart)
+    return secrets.compare_digest(user or '', AUTH_USER) and secrets.compare_digest(pw or '', AUTH_PASS)
+
+def require_auth(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not AUTH_USER or not AUTH_PASS:
+            return fn(*args, **kwargs)
+        a = request.authorization
+        if not a or not _check_auth(a.username, a.password):
+            return Response('Auth påkrævet', 401, {'WWW-Authenticate': 'Basic realm="nGrave"'})
+        return fn(*args, **kwargs)
+    return wrapper
+
+# ─── Database ─────────────────────────────────────────────────────────────
 def get_db():
     if 'db' not in g:
         g.db = sqlite3.connect(DB)
         g.db.row_factory = sqlite3.Row
+        g.db.execute("PRAGMA foreign_keys=ON")
     return g.db
 
 @app.teardown_appcontext
 def close_db(e=None):
     db = g.pop('db', None)
-    if db: db.close()
+    if db:
+        db.close()
 
 def init_db():
     with sqlite3.connect(DB) as db:
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA foreign_keys=ON")
         with open(os.path.join(os.path.dirname(__file__), 'schema.sql')) as f:
             db.executescript(f.read())
     migrate_db()
+    seed_defaults()
+    cleanup_running_on_startup()
+
+def seed_defaults():
+    """Indsætter standard-templates hvis de ikke findes.
+
+    Kører EFTER migrate_db, så vi kan referere migrations-kolonner.
+    Bruger INSERT OR IGNORE → eksisterende rækker (også custom) bevares.
+    """
+    default_grid = json.dumps({
+        "kolonner": 5, "raekker": 4,
+        "slots": [
+            {"nr":1,"x":24,"y":11},{"nr":2,"x":74,"y":11},{"nr":3,"x":124,"y":11},{"nr":4,"x":174,"y":11},{"nr":5,"x":224,"y":11},
+            {"nr":6,"x":24,"y":77},{"nr":7,"x":74,"y":77},{"nr":8,"x":124,"y":77},{"nr":9,"x":174,"y":77},{"nr":10,"x":224,"y":77},
+            {"nr":11,"x":24,"y":143},{"nr":12,"x":74,"y":143},{"nr":13,"x":124,"y":143},{"nr":14,"x":174,"y":143},{"nr":15,"x":224,"y":143},
+            {"nr":16,"x":24,"y":208},{"nr":17,"x":74,"y":208},{"nr":18,"x":124,"y":208},{"nr":19,"x":174,"y":208},{"nr":20,"x":224,"y":208}
+        ]
+    })
+    default_linjer = json.dumps([
+        {"justering": "center", "hoejde_mm": 12, "font": "block"},
+        {"justering": "center", "hoejde_mm": 8,  "font": "block"}
+    ])
+    with sqlite3.connect(DB) as db:
+        db.execute("""
+            INSERT OR IGNORE INTO templates (
+                id, navn, beskrivelse, noejle_type,
+                zone_bredde_mm, zone_hoejde_mm, tekst_hoejde_mm, linje_afstand,
+                feed_xy, feed_z, spindle_rpm, z_op_mm, prox_offset_mm,
+                markering_x, markering_y, markering_justering,
+                system_x, system_y, system_justering,
+                loebe_x, loebe_y, loebe_justering,
+                maskine_id, grid_json
+            ) VALUES (1, 'Ruko Triton 5x4', 'Ruko Triton / D1200', 'RUKO TRITON',
+                      18.0, 8.0, 3.5, 1.5,
+                      12, 40, 16000, 5.0, 1.5,
+                      0.0, 0.0, 'venstre',
+                      0.0, 5.0, 'venstre',
+                      0.0, 0.0, 'hoejre',
+                      NULL, ?)
+        """, (default_grid,))
+        db.execute("""
+            INSERT OR IGNORE INTO skilt_templates (
+                id, navn, beskrivelse, skilt_bredde_mm, skilt_hoejde_mm, antal_linjer, linjer_config, maskine_id
+            ) VALUES (1, 'Dørskilt Standard', 'Standard dørskilt 200x100mm', 200, 100, 2, ?, NULL)
+        """, (default_linjer,))
+        db.commit()
 
 def migrate_db():
     """Tilføjer manglende kolonner til eksisterende databaser."""
@@ -49,7 +120,6 @@ def migrate_db():
         ("templates",   "linje_afstand",      "REAL NOT NULL DEFAULT 1.5"),
         ("templates",   "prox_offset_mm",     "REAL NOT NULL DEFAULT 1.5"),
         ("templates",   "font",               "TEXT NOT NULL DEFAULT 'block'"),
-        # Dynamiske felter
         ("templates",   "markering_aktiv",    "INTEGER NOT NULL DEFAULT 1"),
         ("templates",   "markering_navn",     "TEXT NOT NULL DEFAULT 'Markering'"),
         ("templates",   "system_aktiv",       "INTEGER NOT NULL DEFAULT 1"),
@@ -87,6 +157,11 @@ def migrate_db():
         ("skilt_templates","margin_top_mm",   "REAL"),
         ("skilt_templates","margin_bottom_mm","REAL"),
         ("skilt_templates","linje_afstand_mm","REAL"),
+        ("skilt_templates","feed_xy",         "INTEGER"),
+        ("skilt_templates","feed_z",          "INTEGER"),
+        ("skilt_templates","spindle_rpm",     "INTEGER"),
+        ("skilt_templates","z_op_mm",         "REAL"),
+        ("skilt_templates","prox_offset_mm",  "REAL"),
         ("skilte_jobs", "margin_top_mm",      "REAL"),
         ("skilte_jobs", "margin_bottom_mm",   "REAL"),
         ("skilte_jobs", "linje_afstand_mm",   "REAL"),
@@ -96,9 +171,21 @@ def migrate_db():
         for table, col, typedef in migrations:
             try:
                 db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typedef}")
-                print(f"Migration: tilføjede {table}.{col}")
-            except Exception:
-                pass
+                app.logger.info("Migration: tilføjede %s.%s", table, col)
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e):
+                    app.logger.warning("Migration %s.%s fejlede: %s", table, col, e)
+
+def cleanup_running_on_startup():
+    """Marker jobs der var 'running' ved restart som fejlede."""
+    with sqlite3.connect(DB) as db:
+        for tbl in ('jobs', 'job_batches', 'skilte_jobs'):
+            try:
+                db.execute(f"UPDATE {tbl} SET status='fejl', fejl_besked='Afbrudt ved restart' WHERE status='running'")
+            except sqlite3.OperationalError:
+                # Tabel har ikke fejl_besked-kolonne (job_batches mangler den)
+                db.execute(f"UPDATE {tbl} SET status='fejl' WHERE status='running'")
+        db.commit()
 
 # ─── Job Queue Worker ─────────────────────────────────────────────────────────
 stop_event = threading.Event()
@@ -132,7 +219,6 @@ def queue_worker():
                         (batch_id,)
                     ).fetchall()
 
-                    # Hent template og maskine separat for at undgå kolonne-konflikter
                     tmpl = dict(db.execute(
                         "SELECT * FROM templates WHERE id=?", (batch['template_id'],)
                     ).fetchone())
@@ -140,7 +226,6 @@ def queue_worker():
                         "SELECT * FROM maskiner WHERE id=?", (batch['maskine_id'],)
                     ).fetchone())
 
-                    # Tilføj maskin-offset til tmpl så byg_batch har adgang
                     tmpl['offset_x'] = maskine.get('offset_x', 0.0) or 0.0
                     tmpl['offset_y'] = maskine.get('offset_y', 0.0) or 0.0
                     tmpl['offset_z'] = maskine.get('offset_z', 0.0) or 0.0
@@ -165,7 +250,7 @@ def queue_worker():
                                    (datetime.now(), batch_id))
                     except Exception as e:
                         db.execute("UPDATE job_batches SET status='fejl' WHERE id=?", (batch_id,))
-                        print(f"Batch {batch_id} fejl: {e}")
+                        app.logger.exception("Batch %s fejl: %s", batch_id, e)
                     db.commit()
                     continue
 
@@ -190,17 +275,20 @@ def queue_worker():
                         db.execute("UPDATE skilte_jobs SET status='done', faerdig=? WHERE id=?",
                                    (datetime.now(), skilt_id))
                     except Exception as e:
-                        db.execute("UPDATE skilte_jobs SET status='fejl' WHERE id=?", (skilt_id,))
+                        db.execute("UPDATE skilte_jobs SET status='fejl', fejl_besked=? WHERE id=?",
+                                   (str(e)[:200], skilt_id))
+                        app.logger.exception("Skilt %s fejl: %s", skilt_id, e)
                     db.commit()
                     continue
 
-                time.sleep(1)
+                # Vent op til 1 sekund eller indtil stop_event sættes
+                stop_event.wait(timeout=1)
 
         except Exception as e:
-            print(f"Queue worker fejl: {e}")
-            time.sleep(2)
+            app.logger.exception("Queue worker fejl: %s", e)
+            stop_event.wait(timeout=2)
 
-# ─── API Routes ───────────────────────────────────────────────────────────────
+# ─── API Routes ───────────────────────────────────────────────────────────────────
 
 @app.route('/')
 def index():
@@ -208,12 +296,51 @@ def index():
 
 # Maskiner
 @app.route('/api/maskiner')
+@require_auth
 def get_maskiner():
     return jsonify([dict(r) for r in get_db().execute("SELECT * FROM maskiner WHERE aktiv=1")])
 
+@app.route('/api/maskiner', methods=['POST'])
+@require_auth
+def create_maskine():
+    d = request.json or {}
+    required = ('navn', 'model', 'ip', 'port', 'protokol')
+    missing = [k for k in required if not d.get(k)]
+    if missing:
+        return jsonify({'ok': False, 'fejl': f'Manglende felter: {", ".join(missing)}'}), 400
+    if d['protokol'] not in ('gcode', 'cipher'):
+        return jsonify({'ok': False, 'fejl': 'Ugyldig protokol (gcode/cipher)'}), 400
+    db = get_db()
+    cur = db.execute("""
+        INSERT INTO maskiner (navn, model, ip, port, protokol)
+        VALUES (?,?,?,?,?)
+    """, (d['navn'], d['model'], d['ip'], int(d['port']), d['protokol']))
+    db.commit()
+    return jsonify({'ok': True, 'id': cur.lastrowid})
+
+@app.route('/api/maskiner/<int:id>', methods=['PUT'])
+@require_auth
+def update_maskine(id):
+    d = request.json or {}
+    db = get_db()
+    db.execute("""
+        UPDATE maskiner SET navn=?, model=?, ip=?, port=?, protokol=? WHERE id=?
+    """, (d.get('navn'), d.get('model'), d.get('ip'), int(d.get('port', 0)), d.get('protokol'), id))
+    db.commit()
+    return jsonify({'ok': True})
+
+@app.route('/api/maskiner/<int:id>', methods=['DELETE'])
+@require_auth
+def delete_maskine(id):
+    db = get_db()
+    db.execute("UPDATE maskiner SET aktiv=0 WHERE id=?", (id,))
+    db.commit()
+    return jsonify({'ok': True})
+
 @app.route('/api/maskiner/<int:id>/kalibrering', methods=['PUT'])
+@require_auth
 def kalibrering(id):
-    d = request.json
+    d = request.json or {}
     db = get_db()
     db.execute("""UPDATE maskiner SET offset_x=?, offset_y=?, offset_z=?, spejl_y=?,
                     felt_markering_dx=?, felt_markering_dy=?,
@@ -232,13 +359,15 @@ def kalibrering(id):
 
 # Nøgle-Templates
 @app.route('/api/templates')
+@require_auth
 def get_templates():
     rows = get_db().execute("SELECT * FROM templates WHERE aktiv=1")
     return jsonify([dict(r) for r in rows])
 
 @app.route('/api/templates', methods=['POST'])
+@require_auth
 def create_template():
-    d = request.json
+    d = request.json or {}
     db = get_db()
     try:
         cur = db.execute("""
@@ -271,11 +400,13 @@ def create_template():
         db.commit()
         return jsonify({'ok': True, 'id': cur.lastrowid})
     except Exception as e:
-        return jsonify({'ok': False, 'fejl': str(e)}), 200
+        app.logger.exception("create_template fejl")
+        return jsonify({'ok': False, 'fejl': 'Kunne ikke oprette template'}), 500
 
 @app.route('/api/templates/<int:id>', methods=['PUT'])
+@require_auth
 def update_template(id):
-    d = request.json
+    d = request.json or {}
     db = get_db()
     try:
         db.execute("""
@@ -309,12 +440,13 @@ def update_template(id):
         db.commit()
         return jsonify({'ok': True})
     except Exception as e:
-        return jsonify({'ok': False, 'fejl': str(e)}), 200
+        app.logger.exception("update_template fejl")
+        return jsonify({'ok': False, 'fejl': 'Kunne ikke opdatere template'}), 500
 
 @app.route('/api/templates/<int:id>', methods=['DELETE'])
+@require_auth
 def delete_template(id):
     db = get_db()
-    # Tjek om template er i brug
     in_use = db.execute("SELECT COUNT(*) FROM job_batches WHERE template_id=?", (id,)).fetchone()[0]
     if in_use > 0:
         db.execute("UPDATE templates SET aktiv=0 WHERE id=?", (id,))
@@ -325,13 +457,15 @@ def delete_template(id):
 
 # Skilt-Templates
 @app.route('/api/skilt-templates')
+@require_auth
 def get_skilt_templates():
     rows = get_db().execute("SELECT * FROM skilt_templates WHERE aktiv=1")
     return jsonify([dict(r) for r in rows])
 
 @app.route('/api/skilt-templates', methods=['POST'])
+@require_auth
 def create_skilt_template():
-    d = request.json
+    d = request.json or {}
     db = get_db()
     cur = db.execute("""
         INSERT INTO skilt_templates (
@@ -347,8 +481,9 @@ def create_skilt_template():
     return jsonify({'ok': True, 'id': cur.lastrowid})
 
 @app.route('/api/skilt-templates/<int:id>', methods=['PUT'])
+@require_auth
 def update_skilt_template(id):
-    d = request.json
+    d = request.json or {}
     db = get_db()
     db.execute("""
         UPDATE skilt_templates SET
@@ -364,6 +499,7 @@ def update_skilt_template(id):
     return jsonify({'ok': True})
 
 @app.route('/api/skilt-templates/<int:id>', methods=['DELETE'])
+@require_auth
 def delete_skilt_template(id):
     db = get_db()
     db.execute("UPDATE skilt_templates SET aktiv=0 WHERE id=?", (id,))
@@ -372,35 +508,42 @@ def delete_skilt_template(id):
 
 # Maskine test-kørsel
 @app.route('/api/maskiner/<int:id>/test', methods=['POST'])
+@require_auth
 def test_maskine(id):
     db = get_db()
     maskine = db.execute("SELECT * FROM maskiner WHERE id=?", (id,)).fetchone()
     if not maskine:
-        return jsonify({'ok': False, 'fejl': 'Maskine ikke fundet'})
-    
-    MM = 1 / 25.4
-    ox = round((maskine['offset_x'] or 0) * MM, 4)
-    oy = round(-(maskine['offset_y'] or 0) * MM, 4)
-    
-    # Kør til kalibreret 0,0 position med Z oppe - ingen spindle
-    gcode = "\n".join([
-        "M24",
-        "G28 Z0",
-        "G20",
-        "G90",
-        f"G0 X{ox} Y{oy}",
-        "M30"
-    ]) + "\n"
-    
+        return jsonify({'ok': False, 'fejl': 'Maskine ikke fundet'}), 404
+
     try:
-        from workers.gcode_worker import send as send_gcode
-        send_gcode(gcode, maskine['ip'], maskine['port'])
+        if maskine['protokol'] == 'cipher':
+            # CIPHER: kør til 0,0 (offsets håndteres ikke her — S3 forventer steps,
+            # ikke mm, og test-pos skal være maskinens 0,0)
+            from workers.cipher_worker import send as send_cipher
+            send_cipher("IN;ZD0;PA0,0;|", maskine['ip'], maskine['port'])
+        else:
+            # G-code: kalibreret 0,0 med Z oppe, ingen spindle
+            MM = 1 / 25.4
+            ox = round((maskine['offset_x'] or 0) * MM, 4)
+            oy = round(-(maskine['offset_y'] or 0) * MM, 4)
+            gcode = "\n".join([
+                "M24",
+                "G28 Z0",
+                "G20",
+                "G90",
+                f"G0 X{ox} Y{oy}",
+                "M30"
+            ]) + "\n"
+            from workers.gcode_worker import send as send_gcode
+            send_gcode(gcode, maskine['ip'], maskine['port'])
         return jsonify({'ok': True})
     except Exception as e:
-        return jsonify({'ok': False, 'fejl': str(e)})
+        app.logger.exception("test_maskine fejl")
+        return jsonify({'ok': False, 'fejl': 'Kunne ikke kontakte maskinen'}), 502
 
 # Batches (nøgle-jobs)
 @app.route('/api/batches')
+@require_auth
 def get_batches():
     rows = get_db().execute("""
         SELECT b.*, t.navn as template_navn, m.navn as maskine_navn
@@ -412,20 +555,20 @@ def get_batches():
     return jsonify([dict(r) for r in rows])
 
 @app.route('/api/batches', methods=['POST'])
+@require_auth
 def create_batch():
-    d = request.json
+    d = request.json or {}
     db = get_db()
 
     tmpl = db.execute("SELECT * FROM templates WHERE id=?", (d['template_id'],)).fetchone()
     if not tmpl:
-        return jsonify({'ok': False, 'fejl': 'Template findes ikke'})
+        return jsonify({'ok': False, 'fejl': 'Template findes ikke'}), 404
 
     grid = json.loads(tmpl['grid_json'])
     slots = grid.get('slots', [])
     if not slots:
-        return jsonify({'ok': False, 'fejl': 'Template har ingen slots'})
+        return jsonify({'ok': False, 'fejl': 'Template har ingen slots'}), 400
 
-    # Felt-data — brug kun hvis aktivt i template
     type_felt    = d.get('type_felt', '') if tmpl['markering_aktiv'] else ''
     system_nr    = d.get('system_nr', '') if tmpl['system_aktiv'] else ''
     ekstra_tekst = d.get('ekstra_tekst', '') if tmpl['ekstra_aktiv'] else ''
@@ -434,22 +577,21 @@ def create_batch():
     loebe_suffix = d.get('loebe_suffix', '').strip() if tmpl['loebe_suffix_aktiv'] else ''
     loebe_min    = int(tmpl['loebe_min_laengde'] or 0)
 
-    # Hvis løbenr ikke er aktiv, laver vi kun 1 job (ikke per slot)
     if loebe_aktiv:
         fra = int(d.get('loebe_fra', 1))
         til = int(d.get('loebe_til', 1))
     else:
         fra = 1
-        til = int(d.get('antal', 1))  # antal emner
+        til = int(d.get('antal', 1))
 
     antal = til - fra + 1
     start_slot = max(1, int(d.get('start_slot', 1))) - 1
     plade_size = len(slots)
 
     if antal <= 0:
-        return jsonify({'ok': False, 'fejl': 'Ugyldigt antal/løbenummer-interval'})
+        return jsonify({'ok': False, 'fejl': 'Ugyldigt antal/løbenummer-interval'}), 400
     if start_slot >= plade_size:
-        return jsonify({'ok': False, 'fejl': f'Start slot {start_slot+1} er større end antal slots ({plade_size})'})
+        return jsonify({'ok': False, 'fejl': f'Start slot {start_slot+1} er større end antal slots ({plade_size})'}), 400
 
     foerste_batch_size = plade_size - start_slot
     if antal <= foerste_batch_size:
@@ -489,6 +631,7 @@ def create_batch():
     return jsonify({'ok': True, 'batches': batches, 'jobs': antal, 'plade_size': plade_size, 'start_slot': start_slot+1})
 
 @app.route('/api/batches/<int:id>/frigiv', methods=['POST'])
+@require_auth
 def frigiv_batch(id):
     db = get_db()
     db.execute("UPDATE job_batches SET status='pending' WHERE id=?", (id,))
@@ -496,6 +639,7 @@ def frigiv_batch(id):
     return jsonify({'ok': True})
 
 @app.route('/api/batches/<int:id>/annuller', methods=['POST'])
+@require_auth
 def annuller_batch(id):
     db = get_db()
     db.execute("DELETE FROM jobs WHERE batch_id=?", (id,))
@@ -504,6 +648,7 @@ def annuller_batch(id):
     return jsonify({'ok': True})
 
 @app.route('/api/jobkoe/annuller-alle', methods=['POST'])
+@require_auth
 def annuller_alle_batches():
     db = get_db()
     batches = db.execute("SELECT id FROM job_batches WHERE status IN ('pending','on-hold')").fetchall()
@@ -514,13 +659,13 @@ def annuller_alle_batches():
     return jsonify({'ok': True, 'annulleret': cur.rowcount})
 
 @app.route('/api/jobkoe/ryd-op', methods=['POST'])
+@require_auth
 def ryd_op_jobkoe():
     """Slet alle færdige/fejlede jobs fra jobkøen."""
     d = request.json or {}
     db = get_db()
     slettet = 0
     if d.get('type') == 'noegler':
-        # Find batches der er done/fejl
         batches = db.execute("SELECT id FROM job_batches WHERE status IN ('done','fejl')").fetchall()
         for b in batches:
             db.execute("DELETE FROM jobs WHERE batch_id=?", (b['id'],))
@@ -534,6 +679,7 @@ def ryd_op_jobkoe():
 
 # Skilte
 @app.route('/api/skilte')
+@require_auth
 def get_skilte():
     rows = get_db().execute("""
         SELECT s.*, m.navn as maskine_navn,
@@ -546,12 +692,13 @@ def get_skilte():
     return jsonify([dict(r) for r in rows])
 
 @app.route('/api/skilte', methods=['POST'])
+@require_auth
 def create_skilt():
-    d = request.json
+    d = request.json or {}
     db = get_db()
-    
+
     navn = d.get('navn') or f"Skilt_{d['skilt_bredde_mm']}x{d['skilt_hoejde_mm']}"
-    
+
     cur = db.execute("""
         INSERT INTO skilte_jobs (navn, maskine_id, template_id, skilt_bredde_mm, skilt_hoejde_mm, linjer_json, margin_top_mm, margin_bottom_mm, linje_afstand_mm)
         VALUES (?,?,?,?,?,?,?,?,?)
@@ -561,6 +708,7 @@ def create_skilt():
     return jsonify({'ok': True, 'id': cur.lastrowid})
 
 @app.route('/api/skilte/<int:id>/annuller', methods=['POST'])
+@require_auth
 def annuller_skilt(id):
     db = get_db()
     db.execute("DELETE FROM skilte_jobs WHERE id=?", (id,))
@@ -569,6 +717,7 @@ def annuller_skilt(id):
 
 # Status
 @app.route('/api/status')
+@require_auth
 def get_status():
     db = get_db()
     pending = db.execute("SELECT COUNT(*) FROM jobs WHERE status='pending'").fetchone()[0]
@@ -577,13 +726,25 @@ def get_status():
 
 # Fonts
 @app.route('/api/fonts')
+@require_auth
 def get_fonts():
     from workers.font_manager import FONTS
     return jsonify(FONTS)
 
-# ─── Startup ──────────────────────────────────────────────────────────────────
+# ─── Startup ───────────────────────────────────────────────────────────────────
+def _handle_signal(signum, frame):
+    app.logger.info("Modtog signal %s — stopper queue worker", signum)
+    stop_event.set()
+
 if __name__ == '__main__':
     init_db()
+    if not AUTH_USER or not AUTH_PASS:
+        app.logger.warning(
+            "ADVARSEL: NGRAVE_AUTH_USER/NGRAVE_AUTH_PASS er ikke sat — API er åbent. "
+            "Sæt dem i /etc/ngrave/ngrave.env for at aktivere Basic Auth."
+        )
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
     t = threading.Thread(target=queue_worker, daemon=True)
     t.start()
-    app.run(host='0.0.0.0', port=80, debug=False)
+    app.run(host=HOST, port=PORT, debug=False)
