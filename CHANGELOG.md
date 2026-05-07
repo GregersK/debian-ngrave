@@ -1,5 +1,35 @@
 # Changelog
 
+## v6.0 (Maj 2026)
+
+### Sikkerhed
+- Servicen kører ikke længere som root. Ny system-bruger `ngrave` får `CAP_NET_BIND_SERVICE` så port 80 stadig virker.
+- HTTP Basic Auth på alle `/api/*`-endpoints. Credentials autogenereres ved første install og lægges i `/etc/ngrave/ngrave.env`.
+- Stored XSS i template-/maskine-navne mv. blokeret via central `esc()`-helper i UI.
+- Auto-opdatering fra GitHub er nu **tag-baseret** og kører **dagligt** i stedet for hvert 5. minut fra `main`. Update-scriptet kører som `ngrave`-bruger; restart sker via en sudoers-regel der kun tillader `systemctl restart ngrave`.
+- `apt upgrade -y` fjernet fra installer (uventet system-bred sideeffekt).
+
+### Nyt
+- **Maskine-CRUD i UI**: opret/rediger/slet maskiner direkte under fanen Maskiner. Manuel `sqlite3` ikke længere nødvendig.
+- Test-position-knappen understøtter nu både G-code (S5) og CIPHER (S3) maskiner.
+- Skilt-templates kan overskrive feed/feed_z/rpm/z_op_mm/prox_offset_mm i stedet for at bruge globale konstanter.
+- DB-sti konfigurerbar via env var `NGRAVE_DB`.
+
+### Robusthed
+- SQLite kører nu i WAL-mode → ingen "database is locked"-fejl under last.
+- Jobs der var `running` ved restart markeres `fejl` med begrundelse "Afbrudt ved restart" i stedet for at hænge for evigt.
+- API'et returnerer korrekte HTTP-statuskoder (4xx/5xx ved fejl, ikke 200).
+- Stack traces eksponeres ikke længere til klienter — logges server-side via `app.logger.exception`.
+- `migrate_db()` skelner mellem "kolonne findes allerede" (tavst) og rigtige fejl (logges).
+- `signal.SIGTERM`/`SIGINT` håndteret så queue worker kan stoppe pænt.
+
+### Rettelser
+- `schema.sql` havde en duplikeret `CREATE TABLE maskiner` — fjernet.
+- `schema.sql` mangledes mange kolonner som kun blev tilføjet via migration. Fresh installs har nu alle kolonner i CREATE TABLE.
+- `gcode_worker.byg_job()` og `cipher_worker.byg_job()` (forældet single-job-kode uden ekstra-felt-support) fjernet.
+- Bare `except:` udskiftet med `except Exception:`.
+- Lowercase `æ/ø/å` fjernet fra `block_font.CHAR_MAP` (uopnåelig kode efter `tekst.upper()`).
+
 ## v5.0 (April 2026)
 
 ### Nyt
