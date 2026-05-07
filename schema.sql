@@ -1,5 +1,4 @@
--- nGrave Database Schema
--- Ryd maskine-info inden commit til GitHub
+-- nGrave Database Schema v5
 
 CREATE TABLE IF NOT EXISTS maskiner (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -11,21 +10,15 @@ CREATE TABLE IF NOT EXISTS maskiner (
     offset_x    REAL NOT NULL DEFAULT 0.0,
     offset_y    REAL NOT NULL DEFAULT 0.0,
     offset_z    REAL NOT NULL DEFAULT 0.0,
-    aktiv       INTEGER DEFAULT 1,
-    oprettet    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
--- nGrave Database Schema v5
-
-CREATE TABLE IF NOT EXISTS maskiner (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    navn        TEXT NOT NULL,
-    model       TEXT NOT NULL,
-    ip          TEXT NOT NULL,
-    port        INTEGER NOT NULL,
-    protokol    TEXT NOT NULL,
-    offset_x    REAL NOT NULL DEFAULT 0.0,
-    offset_y    REAL NOT NULL DEFAULT 0.0,
-    offset_z    REAL NOT NULL DEFAULT 0.0,
+    spejl_y     INTEGER NOT NULL DEFAULT 0,
+    felt_markering_dx REAL NOT NULL DEFAULT 0.0,
+    felt_markering_dy REAL NOT NULL DEFAULT 0.0,
+    felt_system_dx    REAL NOT NULL DEFAULT 0.0,
+    felt_system_dy    REAL NOT NULL DEFAULT 0.0,
+    felt_loebe_dx     REAL NOT NULL DEFAULT 0.0,
+    felt_loebe_dy     REAL NOT NULL DEFAULT 0.0,
+    felt_ekstra_dx    REAL NOT NULL DEFAULT 0.0,
+    felt_ekstra_dy    REAL NOT NULL DEFAULT 0.0,
     aktiv       INTEGER DEFAULT 1,
     oprettet    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -46,48 +39,47 @@ CREATE TABLE IF NOT EXISTS templates (
     prox_offset_mm       REAL NOT NULL DEFAULT 1.5,
     font                 TEXT NOT NULL DEFAULT 'block',
     -- Felt 1 (Markering)
-    markering_aktiv      INTEGER NOT NULL DEFAULT 1,
-    markering_navn       TEXT NOT NULL DEFAULT 'Markering',
-    markering_x          REAL NOT NULL DEFAULT 0.0,
-    markering_y          REAL NOT NULL DEFAULT 0.0,
-    markering_justering  TEXT NOT NULL DEFAULT 'venstre',
+    markering_aktiv               INTEGER NOT NULL DEFAULT 1,
+    markering_navn                TEXT NOT NULL DEFAULT 'Markering',
+    markering_x                   REAL NOT NULL DEFAULT 0.0,
+    markering_y                   REAL NOT NULL DEFAULT 0.0,
+    markering_justering           TEXT NOT NULL DEFAULT 'venstre',
     markering_font                TEXT NOT NULL DEFAULT 'block',
     markering_hoejde_mm           REAL NOT NULL DEFAULT 0.0,
     markering_bogstav_afstand_mm  REAL NOT NULL DEFAULT 0.0,
+    markering_position            INTEGER NOT NULL DEFAULT 1,
     -- Felt 2 (System nr)
-    system_aktiv         INTEGER NOT NULL DEFAULT 1,
-    system_navn          TEXT NOT NULL DEFAULT 'System nr',
-    system_x             REAL NOT NULL DEFAULT 0.0,
-    system_y             REAL NOT NULL DEFAULT 5.0,
-    system_justering     TEXT NOT NULL DEFAULT 'venstre',
+    system_aktiv                  INTEGER NOT NULL DEFAULT 1,
+    system_navn                   TEXT NOT NULL DEFAULT 'System nr',
+    system_x                      REAL NOT NULL DEFAULT 0.0,
+    system_y                      REAL NOT NULL DEFAULT 5.0,
+    system_justering              TEXT NOT NULL DEFAULT 'venstre',
     system_font                   TEXT NOT NULL DEFAULT 'block',
     system_hoejde_mm              REAL NOT NULL DEFAULT 0.0,
     system_bogstav_afstand_mm     REAL NOT NULL DEFAULT 0.0,
+    system_position               INTEGER NOT NULL DEFAULT 2,
     -- Felt 3 (Løbenr - auto-inkrementer)
-    loebe_aktiv          INTEGER NOT NULL DEFAULT 1,
-    loebe_navn           TEXT NOT NULL DEFAULT 'Løbenr',
-    loebe_x              REAL NOT NULL DEFAULT 0.0,
-    loebe_y              REAL NOT NULL DEFAULT 0.0,
-    loebe_justering      TEXT NOT NULL DEFAULT 'hoejre',
+    loebe_aktiv                   INTEGER NOT NULL DEFAULT 1,
+    loebe_navn                    TEXT NOT NULL DEFAULT 'Løbenr',
+    loebe_x                       REAL NOT NULL DEFAULT 0.0,
+    loebe_y                       REAL NOT NULL DEFAULT 0.0,
+    loebe_justering               TEXT NOT NULL DEFAULT 'hoejre',
     loebe_font                    TEXT NOT NULL DEFAULT 'block',
     loebe_hoejde_mm               REAL NOT NULL DEFAULT 0.0,
     loebe_bogstav_afstand_mm      REAL NOT NULL DEFAULT 0.0,
     loebe_min_laengde             INTEGER NOT NULL DEFAULT 0,
     loebe_prefix_aktiv            INTEGER NOT NULL DEFAULT 0,
     loebe_suffix_aktiv            INTEGER NOT NULL DEFAULT 0,
+    loebe_position                INTEGER NOT NULL DEFAULT 3,
     -- Felt 4 (Ekstra)
-    ekstra_aktiv         INTEGER NOT NULL DEFAULT 0,
-    ekstra_navn          TEXT NOT NULL DEFAULT 'Ekstra',
-    ekstra_x             REAL NOT NULL DEFAULT 0.0,
-    ekstra_y             REAL NOT NULL DEFAULT 10.0,
-    ekstra_justering     TEXT NOT NULL DEFAULT 'venstre',
+    ekstra_aktiv                  INTEGER NOT NULL DEFAULT 0,
+    ekstra_navn                   TEXT NOT NULL DEFAULT 'Ekstra',
+    ekstra_x                      REAL NOT NULL DEFAULT 0.0,
+    ekstra_y                      REAL NOT NULL DEFAULT 10.0,
+    ekstra_justering              TEXT NOT NULL DEFAULT 'venstre',
     ekstra_font                   TEXT NOT NULL DEFAULT 'block',
     ekstra_hoejde_mm              REAL NOT NULL DEFAULT 0.0,
     ekstra_bogstav_afstand_mm     REAL NOT NULL DEFAULT 0.0,
-    -- Feltrækkefølge (position 1-4 per felt)
-    markering_position            INTEGER NOT NULL DEFAULT 1,
-    system_position               INTEGER NOT NULL DEFAULT 2,
-    loebe_position                INTEGER NOT NULL DEFAULT 3,
     ekstra_position               INTEGER NOT NULL DEFAULT 4,
     grid_json            TEXT NOT NULL,
     maskine_id           INTEGER REFERENCES maskiner(id),
@@ -106,6 +98,11 @@ CREATE TABLE IF NOT EXISTS skilt_templates (
     margin_top_mm    REAL,
     margin_bottom_mm REAL,
     linje_afstand_mm REAL,
+    feed_xy          INTEGER,
+    feed_z           INTEGER,
+    spindle_rpm      INTEGER,
+    z_op_mm          REAL,
+    prox_offset_mm   REAL,
     maskine_id       INTEGER REFERENCES maskiner(id),
     aktiv            INTEGER DEFAULT 1,
     oprettet         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -164,42 +161,5 @@ CREATE TABLE IF NOT EXISTS skilte_jobs (
 );
 
 
-INSERT OR IGNORE INTO templates (
-    id, navn, beskrivelse, noejle_type,
-    zone_bredde_mm, zone_hoejde_mm, tekst_hoejde_mm, linje_afstand,
-    feed_xy, feed_z, spindle_rpm, z_op_mm, prox_offset_mm,
-    markering_x, markering_y, markering_justering,
-    system_x, system_y, system_justering,
-    loebe_x, loebe_y, loebe_justering,
-    maskine_id, grid_json
-) VALUES (
-    1, 'Ruko Triton 5x4', 'Ruko Triton / D1200', 'RUKO TRITON',
-    18.0, 8.0, 3.5, 1.5,
-    12, 40, 16000, 5.0, 1.5,
-    0.0, 0.0, 'venstre',
-    0.0, 5.0, 'venstre',
-    0.0, 0.0, 'hoejre',
-    1, '{
-    "kolonner": 5, "raekker": 4,
-    "slots": [
-        {"nr":1,"x":24,"y":11},{"nr":2,"x":74,"y":11},{"nr":3,"x":124,"y":11},{"nr":4,"x":174,"y":11},{"nr":5,"x":224,"y":11},
-        {"nr":6,"x":24,"y":77},{"nr":7,"x":74,"y":77},{"nr":8,"x":124,"y":77},{"nr":9,"x":174,"y":77},{"nr":10,"x":224,"y":77},
-        {"nr":11,"x":24,"y":143},{"nr":12,"x":74,"y":143},{"nr":13,"x":124,"y":143},{"nr":14,"x":174,"y":143},{"nr":15,"x":224,"y":143},
-        {"nr":16,"x":24,"y":208},{"nr":17,"x":74,"y":208},{"nr":18,"x":124,"y":208},{"nr":19,"x":174,"y":208},{"nr":20,"x":224,"y":208}
-    ]
-}'
-);
-
-INSERT OR IGNORE INTO skilt_templates (
-    id, navn, beskrivelse, skilt_bredde_mm, skilt_hoejde_mm, antal_linjer, linjer_config, maskine_id
-) VALUES (
-    1, 'Dørskilt Standard', 'Standard dørskilt 200x100mm', 200, 100, 2, '[
-        {"justering": "center", "hoejde_mm": 12, "font": "block"},
-        {"justering": "center", "hoejde_mm": 8, "font": "block"}
-    ]', 1
-);
-
--- Eksempel maskiner (ret IP og port til din installation)
--- INSERT OR IGNORE INTO maskiner (id, navn, model, ip, port, protokol) VALUES
---     (1, 'Phoenix S5', 'S5', '192.168.1.100', 22000, 'gcode'),
---     (2, 'Phoenix S3', 'S3', '192.168.1.101', 5000, 'cipher');
+-- Seed-rows oprettes i app.py:seed_defaults() efter migrate_db, så de
+-- kan referere kolonner der er tilføjet via migrations.

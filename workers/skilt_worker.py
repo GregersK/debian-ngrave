@@ -35,11 +35,11 @@ def byg_skilt(skilt):
     bredde  = skilt['skilt_bredde_mm']
     hoejde  = skilt['skilt_hoejde_mm']
     linjer  = json.loads(skilt['linjer_json'])
-    feed    = 12
-    feed_z  = 40
-    rpm     = 16000
-    z_up    = 5.0
-    prox    = 1.5
+    feed    = int(skilt.get('feed_xy')      or 12)
+    feed_z  = int(skilt.get('feed_z')       or 40)
+    rpm     = int(skilt.get('spindle_rpm')  or 16000)
+    z_up    = float(skilt.get('z_op_mm')        or 5.0)
+    prox    = float(skilt.get('prox_offset_mm') or 1.5)
 
     # Spacing parametre
     margin_top    = float(skilt.get('margin_top_mm')    or hoejde * 0.1)
