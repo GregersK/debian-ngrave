@@ -64,7 +64,7 @@ function opdaterPreview() {
     const yPos = zoneY0 + f.y * scale + fth * scale;
     html += `<text x="${zoneX0 + fx*scale}" y="${yPos}" font-size="${fth*scale}" fill="${f.color}" font-family="${cssFont}" font-style="${isItalic?'italic':'normal'}">${f.tekst}</text>`;
     html += `<circle cx="${zoneX0 + fx*scale}" cy="${yPos}" r="3" fill="${f.color}"/>`;
-    html += `<text x="${zoneX0 + fx*scale + 8}" y="${yPos - fth*scale - 2}" font-size="8" fill="${f.color}" font-family="sans-serif">${f.navn}</text>`;
+    html += `<text x="${zoneX0 + fx*scale + 8}" y="${yPos - fth*scale - 2}" font-size="8" fill="${f.color}" font-family="sans-serif">${esc(f.navn)}</text>`;
   });
   
   html += `<circle cx="${zoneX0}" cy="${zoneY0}" r="4" fill="#e94560" stroke="#fff" stroke-width="1"/>`;

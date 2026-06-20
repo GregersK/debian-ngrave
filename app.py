@@ -35,9 +35,10 @@ def require_auth(fn):
 # ─── Database ─────────────────────────────────────────────────────────────
 def get_db():
     if 'db' not in g:
-        g.db = sqlite3.connect(DB)
+        g.db = sqlite3.connect(DB, timeout=5)
         g.db.row_factory = sqlite3.Row
         g.db.execute("PRAGMA foreign_keys=ON")
+        g.db.execute("PRAGMA busy_timeout=5000")
     return g.db
 
 @app.teardown_appcontext
@@ -193,8 +194,9 @@ stop_event = threading.Event()
 def queue_worker():
     while not stop_event.is_set():
         try:
-            with sqlite3.connect(DB) as db:
+            with sqlite3.connect(DB, timeout=5) as db:
                 db.row_factory = sqlite3.Row
+                db.execute("PRAGMA busy_timeout=5000")
 
                 # Find næste pending BATCH — sender alle jobs samlet
                 batch = db.execute("""
@@ -254,11 +256,16 @@ def queue_worker():
                     db.commit()
                     continue
 
-                # Næste pending skilt
+                # Næste pending skilt. LEFT JOIN skilt_templates så feed/rpm/z_op
+                # fra template'en sendes med til worker'en (skilte_jobs har ikke
+                # selv disse kolonner). Fri-form skilte uden template -> NULL ->
+                # worker falder tilbage til standardkonstanter.
                 skilt = db.execute("""
-                    SELECT s.*, m.ip, m.port, m.protokol
+                    SELECT s.*, m.ip, m.port, m.protokol,
+                           st.feed_xy, st.feed_z, st.spindle_rpm, st.z_op_mm, st.prox_offset_mm
                     FROM skilte_jobs s
                     JOIN maskiner m ON s.maskine_id = m.id
+                    LEFT JOIN skilt_templates st ON s.template_id = st.id
                     WHERE s.status = 'pending'
                     ORDER BY s.id ASC LIMIT 1
                 """).fetchone()
@@ -733,8 +740,12 @@ def get_fonts():
 
 # ─── Startup ───────────────────────────────────────────────────────────────────
 def _handle_signal(signum, frame):
-    app.logger.info("Modtog signal %s — stopper queue worker", signum)
+    # Sæt stop-flaget OG afslut processen. Hvis vi kun satte flaget (uden at
+    # afslutte), ville en custom SIGTERM-handler undertrykke Pythons default-
+    # terminering, og `systemctl stop ngrave` ville hænge indtil SIGKILL.
+    app.logger.info("Modtog signal %s — lukker ned", signum)
     stop_event.set()
+    raise SystemExit(0)
 
 if __name__ == '__main__':
     init_db()

@@ -354,12 +354,12 @@ function opdaterSkiltPreview() {
     if (l.y_mm != null) html += `<line x1="${pad}" y1="${pad + y}" x2="${pad + bredde*scale}" y2="${pad + y}" stroke="${color}" stroke-dasharray="3,4" stroke-width="1" opacity="0.4"/>`;
 
     html += `<rect x="${tx - 2}" y="${pad + y - th + 2}" width="${tw + 4}" height="${th}" fill="${color}25" rx="2"/>`;
-    html += `<text x="${tx}" y="${pad + y}" font-size="${th * 0.85}" fill="${color}" font-family="${cssFont}" font-style="${isItalic?'italic':'normal'}" font-weight="${l.font==='romant'||l.font==='italict'||l.font==='gothgbt'?'bold':'normal'}">${tekst.substring(0, 30)}</text>`;
+    html += `<text x="${tx}" y="${pad + y}" font-size="${th * 0.85}" fill="${color}" font-family="${cssFont}" font-style="${isItalic?'italic':'normal'}" font-weight="${l.font==='romant'||l.font==='italict'||l.font==='gothgbt'?'bold':'normal'}">${esc(tekst.substring(0, 30))}</text>`;
     
     // Label: vis manuel eller auto placering
     const xLabel = l.x_mm != null ? `X:${l.x_mm}mm` : jus;
     const yLabel = l.y_mm != null ? `Y:${l.y_mm}mm` : 'auto';
-    html += `<text x="${pad + bredde*scale + 6}" y="${pad + y}" font-size="9" fill="${color}" font-family="sans-serif">${l.font||'block'} ${l.hoejde_mm||10}mm · ${xLabel} · ${yLabel}</text>`;
+    html += `<text x="${pad + bredde*scale + 6}" y="${pad + y}" font-size="9" fill="${color}" font-family="sans-serif">${esc(l.font||'block')} ${l.hoejde_mm||10}mm · ${esc(xLabel)} · ${yLabel}</text>`;
 
     if (i < skiltLinjer.length - 1) {
       const y2 = yPositions[i+1] * scale;
@@ -569,6 +569,13 @@ function visNyTemplate() {
   document.getElementById('t-loebe-jus').value = 'hoejre';
   document.getElementById('t-loebe-font').value = '';
   document.getElementById('t-loebe-hoejde').value = '';
+  document.getElementById('t-loebe-min').value = '0';
+  document.getElementById('t-loebe-prefix-aktiv').checked = false;
+  document.getElementById('t-loebe-suffix-aktiv').checked = false;
+  document.getElementById('t-mark-pos').value = '1';
+  document.getElementById('t-sys-pos').value = '2';
+  document.getElementById('t-loebe-pos').value = '3';
+  document.getElementById('t-ekstra-pos').value = '4';
   document.getElementById('t-ekstra-aktiv').checked = false;
   document.getElementById('t-ekstra-navn').value = 'Ekstra';
   document.getElementById('t-ekstra-x').value = '0';
