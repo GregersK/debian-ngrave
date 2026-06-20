@@ -1,6 +1,10 @@
 # Maskine-konfiguration
 
-Maskiner konfigureres via SQL ved første installation.
+> **Anbefalet:** Tilføj/rediger maskiner via web-UI'en under fanen **Maskiner → + Ny maskine**.
+> SQL-metoden nedenfor er kun et alternativ (f.eks. til scripting/bulk-import) og er
+> ikke længere nødvendig for normal brug.
+
+Maskiner kan også konfigureres direkte via SQL:
 
 ## Vision Phoenix S5 (G-code over TCP)
 

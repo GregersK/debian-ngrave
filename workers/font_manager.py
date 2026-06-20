@@ -32,7 +32,7 @@ def hershey_strokes(tekst, tekst_hoejde_mm, font_name, bogstav_afstand_mm=0.0):
     hf = HersheyFonts()
     try:
         hf.load_font(font_name)
-    except:
+    except Exception:
         return block_strokes(tekst, tekst_hoejde_mm, bogstav_afstand_mm)
 
     hershey_height = 21.0
@@ -55,7 +55,7 @@ def hershey_strokes(tekst, tekst_hoejde_mm, font_name, bogstav_afstand_mm=0.0):
                     scaled = [(x_cursor + x * scale, y * scale) for (x, y) in path]
                     all_strokes.append(scaled)
             x_cursor += glyph.get('width', 16) * scale + bogstav_afstand_mm
-        except:
+        except Exception:
             x_cursor += 8 * scale + bogstav_afstand_mm
 
     return all_strokes, x_cursor

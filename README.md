@@ -51,42 +51,58 @@ Webbaseret system til nøgle- og skiltegravering med live jobkø, batch-håndter
 ### Hurtig installation
 
 ```bash
-# Download og installer
-wget https://github.com/DITBRUGERNAVN/ngrave/archive/main.zip
-unzip main.zip
-cd ngrave-main
+git clone https://github.com/GregersK/debian-ngrave.git
+cd debian-ngrave
 sudo bash install.sh
 ```
 
-Åbn derefter `http://SERVER_IP` i browser.
+Installeren:
+- Opretter system-bruger `ngrave` (servicen kører ikke som root)
+- Genererer et tilfældigt password og gemmer det i `/etc/ngrave/ngrave.env`
+- Sætter daglig auto-opdatering der kun kører ved nye release-tags (ikke arbitrære main-commits)
+
+Når den er færdig vises login-credentials i terminalen — gem dem.
+
+Åbn derefter `http://SERVER_IP` i browser og log ind med `ngrave` + det genererede password.
+
+> **Sikkerhed**: nGrave eksponerer adgang til CNC-maskiner. Eksponér det aldrig direkte mod internettet. Hvis du har brug for ekstern adgang, sæt en reverse proxy med TLS (nginx/caddy) foran og overvej VPN.
 
 ### Manuel installation
 
 ```bash
-git clone https://github.com/DITBRUGERNAVN/ngrave.git
-cd ngrave
+git clone https://github.com/GregersK/debian-ngrave.git
+cd debian-ngrave
 python3 -m venv venv
 source venv/bin/activate
-pip install flask hershey-fonts
-python app.py
+pip install -r requirements.txt
+NGRAVE_AUTH_USER=ngrave NGRAVE_AUTH_PASS=skiftMig NGRAVE_PORT=8080 python app.py
 ```
 
 ---
 
 ## Konfiguration
 
-### Maskiner (kræver SQL — gøres kun én gang)
+### Maskiner
 
-```bash
-sqlite3 /opt/ngrave/ngrave.db
+Tilføjes via UI'en under **Maskiner → + Ny maskine**. Udfyld navn, model, protokol (gcode for S5, cipher for S3), IP og port.
+
+(Tidligere versioner krævede manuelle SQL inserts — det er ikke længere nødvendigt. Se [MACHINES.md](MACHINES.md) hvis du har brug for at scripte bulk-import.)
+
+### Auth & runtime config
+
+Service-config læses fra `/etc/ngrave/ngrave.env`:
+
+```
+NGRAVE_DB=/opt/ngrave/ngrave.db
+NGRAVE_HOST=0.0.0.0
+NGRAVE_PORT=80
+NGRAVE_AUTH_USER=ngrave
+NGRAVE_AUTH_PASS=<auto-genereret>
 ```
 
-```sql
-INSERT INTO maskiner (navn, model, ip, port, protokol) VALUES
-    ('Phoenix S5', 'S5', '192.168.1.100', 22000, 'gcode'),
-    ('Phoenix S3', 'S3', '192.168.1.101', 5000,  'cipher');
-.quit
-```
+For at skifte password, rediger filen og kør `sudo systemctl restart ngrave`.
+
+Hvis `NGRAVE_AUTH_USER` eller `NGRAVE_AUTH_PASS` er tomme, kører API'et åbent — der logges en advarsel ved opstart.
 
 ### Kalibrering
 
@@ -146,7 +162,10 @@ Hele pladefulden sendes som ét G-code program — maskinen stopper ikke mellem 
 Tilsvarende — hele batchen sendes som én kommandostreng.
 
 ### Database
-SQLite med automatisk migration. Nye kolonner tilføjes ved opstart uden at slette eksisterende data.
+SQLite (default `/opt/ngrave/ngrave.db`, kan overskrives med env var `NGRAVE_DB`) med automatisk migration. Nye kolonner tilføjes ved opstart uden at slette eksisterende data. Kører i WAL-mode for samtidig læse/skrive-adgang fra Flask + queue worker.
+
+### Auto-opdatering
+`/opt/ngrave/ngrave-update.sh` køres dagligt af systemd-timer. Den fetcher tags fra GitHub og opdaterer kun hvis der er en ny `vX.Y[.Z]`-tag (ikke ved arbitrære main-commits). Service restartes automatisk via en sudo-regel der kun tillader `systemctl restart ngrave`.
 
 ### Prox-sensor
 `G30` bruges til at finde materialets overflade pr. streg. Offset justeres i template (`prox_offset_mm`).

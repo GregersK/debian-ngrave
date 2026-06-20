@@ -1,33 +1,46 @@
 #!/bin/bash
-# Auto-opdatering af nGrave fra GitHub main-branch
-set -e
+# Auto-opdatering af nGrave fra GitHub — tag-baseret rollout
+# Pull'er kun nye release-tags (vX.Y[.Z]), ikke arbitrære main-commits.
+set -euo pipefail
 
 INSTALL_DIR=/opt/ngrave
 LOG=/var/log/ngrave-update.log
-BRANCH=main
+
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S')  $*" >> "$LOG"
+}
 
 cd "$INSTALL_DIR"
 
-git fetch origin "$BRANCH" --quiet 2>/dev/null || {
-    echo "$(date '+%Y-%m-%d %H:%M'): fetch fejlede (netværk?)" >> "$LOG"
-    exit 0
-}
-
-LOCAL=$(git rev-parse HEAD)
-REMOTE=$(git rev-parse "origin/$BRANCH")
-
-if [ "$LOCAL" = "$REMOTE" ]; then
+if ! git fetch --tags --quiet origin 2>/dev/null; then
+    log "WARN: fetch fejlede (netværk?)"
     exit 0
 fi
 
-CHANGED=$(git diff HEAD "origin/$BRANCH" --name-only)
-
-git pull origin "$BRANCH" --quiet
-
-if echo "$CHANGED" | grep -q "requirements.txt"; then
-    "$INSTALL_DIR/venv/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
+LATEST_TAG=$(git tag -l 'v[0-9]*' --sort=-v:refname | head -n 1 || true)
+if [ -z "$LATEST_TAG" ]; then
+    log "INFO: ingen release-tags fundet — ingen handling"
+    exit 0
 fi
 
-systemctl restart ngrave
+CURRENT_TAG=$(git describe --tags --exact-match 2>/dev/null || echo "")
 
-echo "$(date '+%Y-%m-%d %H:%M'): Opdateret $(git rev-parse --short HEAD~1)→$(git rev-parse --short HEAD)" >> "$LOG"
+if [ "$CURRENT_TAG" = "$LATEST_TAG" ]; then
+    exit 0
+fi
+
+log "INFO: opgraderer fra '${CURRENT_TAG:-<ingen tag>}' til '$LATEST_TAG'"
+
+git checkout --quiet "$LATEST_TAG"
+
+if [ -f requirements.txt ]; then
+    "$INSTALL_DIR/venv/bin/pip" install -q --upgrade -r requirements.txt || {
+        log "WARN: pip install fejlede — fortsætter alligevel"
+    }
+fi
+
+if sudo -n /bin/systemctl restart ngrave 2>/dev/null; then
+    log "INFO: opgraderet til $LATEST_TAG og service restartet"
+else
+    log "WARN: kunne ikke restarte service via sudo — opgradering deployet, men kører stadig gammel version indtil næste manuel restart"
+fi

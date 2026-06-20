@@ -59,7 +59,8 @@ GLYPHS = {
     ' ': [],
 }
 
-CHAR_MAP = {'Æ': 'AE', 'æ': 'AE', 'Ø': 'OE', 'ø': 'OE', 'Å': 'AA', 'å': 'AA'}
+# Lowercase æøå ramler aldrig her fordi tekst.upper() køres først.
+CHAR_MAP = {'Æ': 'AE', 'Ø': 'OE', 'Å': 'AA'}
 
 def get_strokes(tekst, tekst_hoejde_mm, bogstav_afstand_mm=0.0):
     scale = tekst_hoejde_mm / H

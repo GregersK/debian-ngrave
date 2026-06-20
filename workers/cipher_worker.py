@@ -75,14 +75,6 @@ def byg_job_cmds(job, tmpl):
 
     return cmds
 
-def byg_job(job, tmpl):
-    """Bygger komplet CIPHER streng for ét enkelt job."""
-    f   = tmpl['feed_xy']
-    cmds = ["IN", "ZD0", f"FR{f}"]
-    cmds += byg_job_cmds(job, tmpl)
-    cmds.append("PA0,0")
-    return ";".join(cmds) + ";|"
-
 def byg_batch(jobs, tmpl):
     """Bygger ét samlet CIPHER program for alle jobs i batchen."""
     f   = tmpl['feed_xy']
@@ -93,10 +85,10 @@ def byg_batch(jobs, tmpl):
     return ";".join(cmds) + ";|"
 
 def send(job_str, ip, port):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(30)
-        s.connect((ip, port))
-        s.sendall(job_str.encode("ascii"))
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(30)
+        sock.connect((ip, port))
+        sock.sendall(job_str.encode("ascii", errors="ignore"))
         time.sleep(1.0)
-        try: return s.recv(4096)
+        try: return sock.recv(4096)
         except socket.timeout: return b''
