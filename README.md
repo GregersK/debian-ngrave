@@ -86,7 +86,7 @@ NGRAVE_AUTH_USER=ngrave NGRAVE_AUTH_PASS=skiftMig NGRAVE_PORT=8080 python app.py
 
 Tilføjes via UI'en under **Maskiner → + Ny maskine**. Udfyld navn, model, protokol (gcode for S5, cipher for S3), IP og port.
 
-(Tidligere versioner krævede manuelle SQL inserts — det er ikke længere nødvendigt.)
+(Tidligere versioner krævede manuelle SQL inserts — det er ikke længere nødvendigt. Se [MACHINES.md](MACHINES.md) hvis du har brug for at scripte bulk-import.)
 
 ### Auth & runtime config
 

@@ -1,5 +1,23 @@
 # Changelog
 
+## v6.1 (Maj 2026)
+
+Selv-review fixes oven på v6.0 — fundet ved kritisk gennemgang af v6.0-branchen før merge.
+
+### Sikkerhed
+- **Stored XSS i SVG-previews**: tre oversete sinks hvor bruger-strenge blev indsat råt i `innerHTML` — skilt-linjetekst, font-label og felt-navn. Alle wrappet i `esc()`. (v6.0's XSS-fix dækkede kun tabellerne, ikke SVG-renderene.)
+
+### Kritisk regression
+- **SIGTERM hængte service-shutdown**: v6.0's nye SIGTERM-handler satte kun `stop_event` uden at afslutte processen, hvilket undertrykte Pythons default-terminering. `systemctl stop ngrave` ville hænge i 90s indtil SIGKILL. Handleren rejser nu `SystemExit(0)` efter at have sat flaget.
+
+### Robusthed
+- **Skilt-template feed/rpm-feature virkede ikke**: `skilte_jobs` har ikke feed-kolonner, så worker'en faldt altid tilbage til konstanter selvom v6.0 påstod at templates kunne overskrive dem. `queue_worker` LEFT JOIN'er nu `skilt_templates`. Verificeret end-to-end at en template med rpm=12345 nu giver `M3 S12345` i G-koden.
+- `PRAGMA busy_timeout=5000` + `connect(timeout=5)` på get_db og queue_worker → eliminerer spuriøs "database is locked" ved samtidig skrivning.
+
+### Mindre
+- `visNyTemplate` nulstiller nu `loebe_min_laengde`, `loebe_prefix_aktiv`, `loebe_suffix_aktiv` og felt-positioner — stale værdier fra sidst redigerede template hænger ikke længere ved i "Ny template"-formularen.
+- `MACHINES.md` opdateret med note om at UI er den anbefalede metode (SQL er nu kun et alternativ til scripting/bulk-import).
+
 ## v6.0 (Maj 2026)
 
 ### Sikkerhed
