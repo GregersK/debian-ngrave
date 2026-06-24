@@ -747,6 +747,37 @@ def _handle_signal(signum, frame):
     stop_event.set()
     raise SystemExit(0)
 
+def _start_port80_redirector():
+    """Tiny HTTP-server på :80 der 302-redirecter alle requests til :PORT.
+
+    Best-effort: hvis port 80 ikke kan bindes (manglende privilegier, port
+    optaget, allerede vores main-server) → log og fortsæt. Springes over hvis
+    PORT==80 (for at undgå loop).
+
+    Aktiveres når NGRAVE_REDIRECT_FROM_80 != '0' (default 'on'). Bevarer den
+    forventede UX hvor brugere kan skrive 'http://ngrave.laas.local' uden port.
+    """
+    if PORT == 80 or os.environ.get('NGRAVE_REDIRECT_FROM_80', '1') == '0':
+        return
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    target_port = PORT
+    class Redirect(BaseHTTPRequestHandler):
+        def _redirect(self):
+            host = (self.headers.get('Host') or 'localhost').split(':')[0]
+            self.send_response(302)
+            self.send_header('Location', f'http://{host}:{target_port}{self.path}')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+        do_GET = do_HEAD = do_POST = do_PUT = do_DELETE = do_PATCH = _redirect
+        def log_message(self, *a, **kw): pass
+    try:
+        srv = ThreadingHTTPServer(('0.0.0.0', 80), Redirect)
+    except OSError as e:
+        app.logger.info("Port-80-redirector kunne ikke starte (%s) — springer over", e)
+        return
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    app.logger.info("Port-80-redirector aktiv → :%d", target_port)
+
 if __name__ == '__main__':
     init_db()
     if not AUTH_USER or not AUTH_PASS:
@@ -758,4 +789,5 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, _handle_signal)
     t = threading.Thread(target=queue_worker, daemon=True)
     t.start()
+    _start_port80_redirector()
     app.run(host=HOST, port=PORT, debug=False)

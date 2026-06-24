@@ -1,5 +1,15 @@
 # Changelog
 
+## v6.1.1 (Juni 2026)
+
+### Hotfix: port-80-redirector
+
+v6.1 ændrede app.py's default-port fra 80 til 8080 (af hensyn til non-root install-modellen, hvor porte < 1024 kræver capability). Det brød eksisterende installs hvis systemd-unit ikke sender `NGRAVE_PORT` env-var — servicen kører fint, bare på 8080 i stedet for 80, og browsere fik `ERR_CONNECTION_FAILED` på den forventede URL.
+
+- Tilføjet `_start_port80_redirector()` der starter en lille `http.server` på port 80 og 302-redirecter alle requests til `:NGRAVE_PORT`. Best-effort: hvis port 80 ikke kan bindes (ingen privilegier, allerede optaget), logges en INFO og servicen fortsætter uden redirector.
+- Aktiveres automatisk når `PORT != 80`. Kan slås fra med `NGRAVE_REDIRECT_FROM_80=0`.
+- Bevarer den forventede UX hvor brugere kan skrive `http://ngrave.laas.local` uden eksplicit port.
+
 ## v6.1 (Maj 2026)
 
 Selv-review fixes oven på v6.0 — fundet ved kritisk gennemgang af v6.0-branchen før merge.
