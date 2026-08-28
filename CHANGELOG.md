@@ -2,7 +2,11 @@
 
 ## v6.2 (Juni 2026)
 
-Skrifttyper + skilt-sikkerhed.
+Skrifttyper + skilt-sikkerhed + menu-opdeling.
+
+### Menu opdelt i to produktioner
+- Nøgler og skilte er to helt forskellige produktioner og har nu hver deres sektion i menuen: **🔑 Nøgler** (Nyt nøgle-job · Nøgle-kø · Nøgle-templates) og **🏷️ Skilte** (Nyt skilt · Skilte-kø · Skilt-templates), adskilt af skillelinjer, med **⚙ Maskiner** som fælles. Jobkøen kan nu åbnes direkte på den rigtige produktion.
+- Menuen scroller vandret på mobil.
 
 ### Kritisk fejlrettelse: skrifttyper virkede ikke
 - Alle ikke-block skrifttyper (Roman, Italic, Script, Gothic, Sans) faldt **stille tilbage til block-fonten** ved gravering. To fejl oven i hinanden i `font_manager.py`: forkert import (`hershey_fonts` i stedet for `HersheyFonts`) + kald til metoder der ikke findes (`load_font`/`get_glyph` i stedet for `load_default_font`/`glyphs_for_text`). SVG-preview'en brugte CSS-webfonts og så derfor korrekt ud, men maskinen skar block på alt.
