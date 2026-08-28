@@ -33,9 +33,10 @@ header { background: var(--bg-secondary); padding: 16px 24px; display: flex; ali
 header h1 { font-size: 1.4rem; color: var(--accent); }
 header .status { margin-left: auto; font-size: 0.85rem; color: var(--text-secondary); }
 .theme-toggle { background: var(--bg-tertiary); border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; color: var(--text-primary); font-size: 1.2rem; }
-nav { display: flex; background: var(--bg-secondary); border-bottom: 1px solid var(--border); }
-nav button { background: none; border: none; color: var(--text-secondary); padding: 12px 20px; cursor: pointer; font-size: 0.95rem; border-bottom: 3px solid transparent; }
+nav { display: flex; align-items: stretch; background: var(--bg-secondary); border-bottom: 1px solid var(--border); overflow-x: auto; -webkit-overflow-scrolling: touch; }
+nav button { background: none; border: none; color: var(--text-secondary); padding: 12px 18px; cursor: pointer; font-size: 0.95rem; border-bottom: 3px solid transparent; white-space: nowrap; }
 nav button.aktiv { color: var(--accent); border-bottom-color: var(--accent); }
+.nav-sep { flex: 0 0 auto; width: 1px; align-self: center; height: 22px; margin: 0 8px; background: var(--border); }
 main { padding: 24px; max-width: 1400px; margin: 0 auto; }
 .panel { display: none; }
 .panel.aktiv { display: block; }
@@ -85,12 +86,15 @@ tr:hover td { background: var(--hover); }
 </header>
 
 <nav>
-  <button class="aktiv" onclick="skift('nyt-job')">Nyt job</button>
-  <button onclick="skift('jobkoe')">Jobkø</button>
-  <button onclick="skift('skilte')">Skilte</button>
-  <button onclick="skift('templates')">Nøgle-templates</button>
-  <button onclick="skift('skilt-templates')">Skilt-templates</button>
-  <button onclick="skift('maskiner')">Maskiner</button>
+  <button class="aktiv" onclick="skift('nyt-job')">🔑 Nyt nøgle-job</button>
+  <button onclick="visKoe('noegler')">🔑 Nøgle-kø</button>
+  <button onclick="skift('templates')">🔑 Nøgle-templates</button>
+  <span class="nav-sep" aria-hidden="true"></span>
+  <button onclick="skift('skilte')">🏷️ Nyt skilt</button>
+  <button onclick="visKoe('skilte')">🏷️ Skilte-kø</button>
+  <button onclick="skift('skilt-templates')">🏷️ Skilt-templates</button>
+  <span class="nav-sep" aria-hidden="true"></span>
+  <button onclick="skift('maskiner')">⚙ Maskiner</button>
 </nav>
 
 <main>

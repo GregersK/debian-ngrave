@@ -43,6 +43,24 @@ function skift(panel) {
   if (panel === 'maskiner')         hentMaskiner();
 }
 
+// Åbn jobkøen direkte på den rigtige produktion (nøgler eller skilte),
+// så de to produktioner har hver deres kø-indgang i menuen.
+function visKoe(which) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('aktiv'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('aktiv'));
+  document.getElementById('panel-jobkoe').classList.add('aktiv');
+  if (typeof event !== 'undefined' && event && event.target) event.target.classList.add('aktiv');
+  _startAutoRefresh();
+  // Aktivér den rigtige interne fane (uafhængigt af event.target)
+  const btns = document.querySelectorAll('#panel-jobkoe .tab-btn');
+  document.querySelectorAll('#panel-jobkoe .tab-content').forEach(c => c.classList.remove('aktiv'));
+  btns.forEach(b => b.classList.remove('aktiv'));
+  const idx = which === 'skilte' ? 1 : 0;
+  if (btns[idx]) btns[idx].classList.add('aktiv');
+  document.getElementById('jobkoe-' + which).classList.add('aktiv');
+  if (which === 'skilte') hentSkilteKoe(); else hentBatches();
+}
+
 function skiftTab(tab) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('aktiv'));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('aktiv'));
@@ -214,7 +232,10 @@ let _refreshTimer = null;
 function _startAutoRefresh() {
   _stopAutoRefresh();
   _refreshTimer = setInterval(() => {
-    if (document.getElementById('panel-jobkoe').classList.contains('aktiv')) hentBatches();
+    if (!document.getElementById('panel-jobkoe').classList.contains('aktiv')) return;
+    // Opdater kun den fane brugeren rent faktisk kigger på
+    const skilteAktiv = document.getElementById('jobkoe-skilte').classList.contains('aktiv');
+    if (skilteAktiv) hentSkilteKoe(); else hentBatches();
   }, 15000);
 }
 function _stopAutoRefresh() {
