@@ -105,6 +105,15 @@ async function initDropdowns() {
 
   const stmask = document.getElementById('st-maskine');
   stmask.innerHTML = '<option value="">Valgfri</option>' + maskiner.map(m => `<option value="${m.id}">${esc(m.navn)}</option>`).join('');
+
+  // Udfyld nøgle-template font-dropdowns dynamisk fra font-listen (så de
+  // matcher de faktisk understøttede skrifttyper). '' = brug fælles font.
+  const fontOpts = '<option value="">← Fælles font</option>' +
+    Object.entries(fonts).map(([k,v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join('');
+  ['t-mark-font','t-sys-font','t-loebe-font','t-ekstra-font'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = fontOpts;
+  });
 }
 
 function opdaterTemplateMaskine() {
@@ -194,7 +203,7 @@ async function hentSkilteKoe() {
     return `<tr>
       <td>#${r.id}</td><td>${esc(r.navn)}</td><td>${esc(r.template_navn) || '—'}</td>
       <td>${r.skilt_bredde_mm}×${r.skilt_hoejde_mm} mm</td><td>${linjer.length} linjer</td>
-      <td>${esc(r.maskine_navn)}</td><td><span class="badge badge-${esc(r.status)}">${esc(r.status)}</span></td>
+      <td>${esc(r.maskine_navn)}</td><td><span class="badge badge-${esc(r.status)}">${esc(r.status)}</span>${r.status==='fejl'&&r.fejl_besked?`<div style="color:var(--accent);font-size:0.7rem;margin-top:3px;max-width:220px;">${esc(r.fejl_besked)}</div>`:''}</td>
       <td>${r.status==='pending'?`<button class="btn btn-danger" onclick="annullerSkilt(${r.id})" style="padding:4px 10px;font-size:0.8rem">Annuller</button>`:''}</td>
     </tr>`;
   }).join('');
@@ -255,25 +264,39 @@ async function rydOpJobkoe(type) {
 // Mapper Hershey font navne til CSS font-family approximationer
 function fontTilCSS(font) {
   const m = {
-    'block':    'monospace',
-    'futural':  'Arial, sans-serif',
-    'romans':   'Arial, sans-serif',
-    'romanc':   'Georgia, serif',
-    'romand':   'Georgia, serif',
-    'romant':   '"Times New Roman", serif',
-    'italics':  'italic Georgia, serif',
-    'italiccs': 'italic Georgia, serif',
-    'italict':  'italic "Times New Roman", serif',
-    'scriptc':  'cursive',
-    'scripts':  'cursive',
-    'gothgbt':  '"Palatino Linotype", fantasy',
-    'gothgrt':  '"Palatino Linotype", fantasy',
+    'block':     'monospace',
+    // Sans
+    'futural':   'Arial, sans-serif',
+    'futuram':   'Arial, sans-serif',
+    // Roman / serif
+    'rowmans':   'Georgia, serif',
+    'rowmand':   'Georgia, serif',
+    'rowmant':   'Georgia, serif',
+    // Times
+    'timesr':    '"Times New Roman", serif',
+    'timesrb':   '"Times New Roman", serif',
+    'timesi':    'italic "Times New Roman", serif',
+    'timesib':   'italic "Times New Roman", serif',
+    // Script / kursiv
+    'scripts':   'cursive',
+    'scriptc':   'cursive',
+    'cursive':   'cursive',
+    // Gotisk / blackletter
+    'gothgrt':   '"Palatino Linotype", fantasy',
+    'gothgbt':   '"Palatino Linotype", fantasy',
+    'gothiceng': '"Palatino Linotype", fantasy',
+    'gothicger': '"Palatino Linotype", fantasy',
+    'gothicita': '"Palatino Linotype", fantasy',
+    // Gamle nøgler (bagudkompat i preview)
+    'romans':'Georgia, serif','romanc':'Georgia, serif','romand':'Georgia, serif',
+    'romant':'"Times New Roman", serif','italics':'italic Georgia, serif',
+    'italiccs':'italic Georgia, serif','italict':'italic "Times New Roman", serif',
   };
   return m[font] || 'monospace';
 }
 
 function fontErItalic(font) {
-  return font && (font.startsWith('italic') || font === 'italics' || font === 'italiccs' || font === 'italict');
+  return font && (font.startsWith('italic') || font === 'timesi' || font === 'timesib' || font === 'cursive' || font === 'scripts' || font === 'scriptc');
 }
 
 function opdaterSkiltPreview() {
@@ -354,7 +377,7 @@ function opdaterSkiltPreview() {
     if (l.y_mm != null) html += `<line x1="${pad}" y1="${pad + y}" x2="${pad + bredde*scale}" y2="${pad + y}" stroke="${color}" stroke-dasharray="3,4" stroke-width="1" opacity="0.4"/>`;
 
     html += `<rect x="${tx - 2}" y="${pad + y - th + 2}" width="${tw + 4}" height="${th}" fill="${color}25" rx="2"/>`;
-    html += `<text x="${tx}" y="${pad + y}" font-size="${th * 0.85}" fill="${color}" font-family="${cssFont}" font-style="${isItalic?'italic':'normal'}" font-weight="${l.font==='romant'||l.font==='italict'||l.font==='gothgbt'?'bold':'normal'}">${esc(tekst.substring(0, 30))}</text>`;
+    html += `<text x="${tx}" y="${pad + y}" font-size="${th * 0.85}" fill="${color}" font-family="${cssFont}" font-style="${isItalic?'italic':'normal'}" font-weight="${['futuram','rowmand','rowmant','timesrb','timesib','gothgbt','gothicger','romant','italict'].includes(l.font)?'bold':'normal'}">${esc(tekst.substring(0, 30))}</text>`;
     
     // Label: vis manuel eller auto placering
     const xLabel = l.x_mm != null ? `X:${l.x_mm}mm` : jus;
@@ -503,7 +526,7 @@ async function hentSkilte() {
     return `<tr>
       <td>#${r.id}</td><td>${esc(r.navn)}</td><td>${esc(r.template_navn) || '—'}</td>
       <td>${r.skilt_bredde_mm}×${r.skilt_hoejde_mm} mm</td><td>${linjer.length} linjer</td>
-      <td>${esc(r.maskine_navn)}</td><td><span class="badge badge-${esc(r.status)}">${esc(r.status)}</span></td>
+      <td>${esc(r.maskine_navn)}</td><td><span class="badge badge-${esc(r.status)}">${esc(r.status)}</span>${r.status==='fejl'&&r.fejl_besked?`<div style="color:var(--accent);font-size:0.7rem;margin-top:3px;max-width:220px;">${esc(r.fejl_besked)}</div>`:''}</td>
       <td>${r.status==='pending'?`<button class="btn btn-danger" onclick="annullerSkilt(${r.id})" style="padding:4px 10px;font-size:0.8rem">Annuller</button>`:''}</td>
     </tr>`;
   }).join('');

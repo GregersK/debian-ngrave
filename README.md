@@ -26,7 +26,7 @@ Webbaseret system til nøgle- og skiltegravering med live jobkø, batch-håndter
 ### Generelt
 - 🌓 Light/Dark mode (huskes i browser)
 - Live preview for både nøgle-felter og skilte
-- 13 skrifttyper: Block (custom single-stroke), Roman, Italic, Script, Gothic m.fl.
+- 18 single-stroke skrifttyper: Block (custom, med ÆØÅ), Sans, Roman, Times (normal/fed/kursiv), Script/Kursiv og Gotisk/Blackletter
 - Automatisk migration ved opgradering (ingen manuel SQL)
 - Jobkø med ryd-op funktion
 
