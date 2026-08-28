@@ -64,13 +64,19 @@ def byg_skilt(skilt):
         spacing = tilg / (antal - 1)
         y_positions = [margin_top + i * spacing for i in range(antal)]
 
-    lines = ["M24","G28 Z0","G20","G90",f"M3 S{rpm}"]
-
+    # ── Beregn og VALIDÉR alle linjer FØR vi udsender bevægelses-G-code ──────
+    # Sikkerhed: hvis en linje ikke passer inden for skiltets bredde/højde,
+    # ville maskinen ellers gravere ud over kanten — ind i emne-holder/bord.
+    # Vi bygger derfor hele skiltet i hukommelsen, tjekker at alt er inden for
+    # skiltets areal, og kaster en fejl (job -> 'fejl') før spindlen tændes.
+    EPS = 0.05  # mm tolerance
+    beregnet = []   # (strokes, x_start, y_pos)
+    fejl = []
     for i, linje in enumerate(linjer):
-        tekst     = linje['tekst']
+        tekst     = linje.get('tekst', '')
         justering = linje.get('justering', 'venstre')
-        th        = linje.get('hoejde_mm', 10.0)
-        font      = linje.get('font', 'block')
+        th        = float(linje.get('hoejde_mm', 10.0) or 10.0)
+        font      = linje.get('font', 'block') or 'block'
 
         strokes, tw = get_strokes(tekst, th, font)
 
@@ -85,11 +91,28 @@ def byg_skilt(skilt):
             x_start = bredde * 0.05
 
         # Manuel Y overskriver auto-fordeling
-        if linje.get('y_mm') is not None:
-            y_pos = float(linje['y_mm'])
-        else:
-            y_pos = y_positions[i]
+        y_pos = float(linje['y_mm']) if linje.get('y_mm') is not None else y_positions[i]
 
+        # Bounds-check (spring tomme linjer over)
+        if strokes:
+            if x_start < -EPS:
+                fejl.append(f"Linje {i+1} starter uden for venstre kant (x={x_start:.1f}mm)")
+            if x_start + tw > bredde + EPS:
+                fejl.append(f"Linje {i+1} er for bred: teksten fylder {tw:.1f}mm men skiltet er {bredde:.0f}mm "
+                            f"(rager {x_start + tw - bredde:.1f}mm ud over højre kant)")
+            if y_pos < -EPS or y_pos > hoejde + EPS:
+                fejl.append(f"Linje {i+1} er placeret uden for skiltets højde ({hoejde:.0f}mm)")
+
+        beregnet.append((strokes, x_start, y_pos))
+
+    if fejl:
+        raise ValueError("Skiltet kan ikke graveres — teksten passer ikke: " + "; ".join(fejl))
+
+    # ── Alt valideret → udsend G-code ───────────────────────────────────────
+    lines = ["M24","G28 Z0","G20","G90",f"M3 S{rpm}"]
+    for strokes, x_start, y_pos in beregnet:
+        if not strokes:
+            continue
         lines += streger_til_gcode(strokes, x_start, y_pos, feed, feed_z, z_up, prox)
 
     lines += ["G4 P0","M5","M9","M11","M246","G28 Z0","G0 X0 Y0","M30"]

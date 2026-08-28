@@ -1,5 +1,25 @@
 # Changelog
 
+## v6.2 (Juni 2026)
+
+Skrifttyper + skilt-sikkerhed.
+
+### Kritisk fejlrettelse: skrifttyper virkede ikke
+- Alle ikke-block skrifttyper (Roman, Italic, Script, Gothic, Sans) faldt **stille tilbage til block-fonten** ved gravering. To fejl oven i hinanden i `font_manager.py`: forkert import (`hershey_fonts` i stedet for `HersheyFonts`) + kald til metoder der ikke findes (`load_font`/`get_glyph` i stedet for `load_default_font`/`glyphs_for_text`). SVG-preview'en brugte CSS-webfonts og så derfor korrekt ud, men maskinen skar block på alt.
+- Rettet med korrekt import + API. Verificeret at alle skrifttyper nu renderer med rigtig orientering, højde og bredde.
+
+### Flere skrifttyper
+- Udvidet fra 13 (hvoraf 12 var i stykker) til **18 fungerende single-stroke skrifttyper**: Block, Sans (simpel/fed), Roman (simpel/normal/fed), Times (normal/fed/kursiv/fed-kursiv), Script/Kursiv (3) og Gotisk/Blackletter (5).
+- Gamle font-nøgler i eksisterende templates/skilte (`romans`, `italict`, …) mappes automatisk til nærmeste rigtige skrifttype (bagudkompatibelt — ingen data mistes).
+- Nøgle-template og skilt font-dropdowns udfyldes nu dynamisk fra font-listen.
+
+### Dansk tegnsæt i skilte
+- Hershey-skrifttyperne indeholder ikke ÆØÅ (de rendrede som blanke huller). De substitueres nu til AE/OE/AA (bevarer versal/minuskel) — samme princip som block-fonten — så danske skilte kan graveres i alle skrifttyper.
+
+### Skilt-sikkerhed (vigtigt før go-live)
+- **Bounds-check**: `skilt_worker` validerer nu at ALLE linjer passer inden for skiltets bredde/højde FØR spindlen tændes. Tekst der er for bred (eller manuel X/Y uden for kanten) afviser jobbet med en klar fejlbesked i stedet for at gravere ud over kanten ind i emne-holder/bord.
+- Skilte-køen viser nu fejl-beskeden ved fejlede jobs, så operatøren kan se hvorfor.
+
 ## v6.1.1 (Juni 2026)
 
 ### Hotfix: port-80-redirector
