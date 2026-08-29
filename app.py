@@ -745,7 +745,7 @@ def get_fonts():
 @require_auth
 def get_systeminfo():
     import subprocess
-    info = {'version': None, 'update_log': []}
+    info = {'version': None, 'channel': 'stable', 'update_log': []}
     try:
         info['version'] = subprocess.run(
             ['git', 'describe', '--tags', '--always'],
@@ -753,6 +753,15 @@ def get_systeminfo():
         ).stdout.strip() or None
     except Exception:
         pass
+    for cf in ('/etc/ngrave/channel', os.path.join(os.path.dirname(__file__), 'channel')):
+        try:
+            with open(cf, encoding='utf-8') as f:
+                ch = f.readline().strip().lower()
+                if ch:
+                    info['channel'] = 'beta' if ch == 'beta' else 'stable'
+                break
+        except Exception:
+            continue
     log_path = os.environ.get('NGRAVE_UPDATE_LOG', '/var/log/ngrave-update.log')
     try:
         with open(log_path, encoding='utf-8', errors='replace') as f:

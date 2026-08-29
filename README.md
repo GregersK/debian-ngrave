@@ -165,7 +165,19 @@ Tilsvarende — hele batchen sendes som én kommandostreng.
 SQLite (default `/opt/ngrave/ngrave.db`, kan overskrives med env var `NGRAVE_DB`) med automatisk migration. Nye kolonner tilføjes ved opstart uden at slette eksisterende data. Kører i WAL-mode for samtidig læse/skrive-adgang fra Flask + queue worker.
 
 ### Auto-opdatering
-`/opt/ngrave/ngrave-update.sh` køres dagligt af systemd-timer. Den fetcher tags fra GitHub og opdaterer kun hvis der er en ny `vX.Y[.Z]`-tag (ikke ved arbitrære main-commits). Service restartes automatisk via en sudo-regel der kun tillader `systemctl restart ngrave`.
+`/opt/ngrave/ngrave-update.sh` køres af systemd-timer. Den fetcher tags fra GitHub og opdaterer kun ved en ny release-tag (ikke ved arbitrære main-commits). Service restartes bagefter (med `reset-failed` + verifikation, så den ikke bliver liggende nede).
+
+**Kanaler (staged rollout):** hver maskine vælger kanal i `/etc/ngrave/channel`:
+- `stable` (standard) — henter kun endelige releases: `v6.3`, `v6.3.1`, …
+- `beta` — henter også pre-releases: `v6.3-beta1`, `v6.3-rc1`, …
+
+```bash
+# Sæt en enkelt maskine på beta (til test før flåde-udrulning):
+echo beta | sudo tee /etc/ngrave/channel
+# Tilbage til stable:
+echo stable | sudo tee /etc/ngrave/channel
+```
+Typisk flow: tag `v6.3-beta1` → kun beta-maskiner opdaterer → test → tag `v6.3` → resten (og beta-maskinerne rykker op til den endelige). Kanal + version vises i **Maskiner → System**.
 
 ### Prox-sensor
 `G30` bruges til at finde materialets overflade pr. streg. Offset justeres i template (`prox_offset_mm`).
