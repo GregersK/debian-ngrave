@@ -738,6 +738,28 @@ def get_fonts():
     from workers.font_manager import FONTS
     return jsonify(FONTS)
 
+# System-diagnostik: seneste linjer af auto-opdaterings-loggen + kørende version.
+# Gør det muligt at se hvorfor en opdatering evt. fejlede — også fra mobil.
+@app.route('/api/systeminfo')
+@require_auth
+def get_systeminfo():
+    import subprocess
+    info = {'version': None, 'update_log': []}
+    try:
+        info['version'] = subprocess.run(
+            ['git', 'describe', '--tags', '--always'],
+            cwd=os.path.dirname(__file__), capture_output=True, text=True, timeout=5
+        ).stdout.strip() or None
+    except Exception:
+        pass
+    log_path = os.environ.get('NGRAVE_UPDATE_LOG', '/var/log/ngrave-update.log')
+    try:
+        with open(log_path, encoding='utf-8', errors='replace') as f:
+            info['update_log'] = f.read().splitlines()[-60:]
+    except Exception as e:
+        info['update_log'] = [f'(kunne ikke læse {log_path}: {e})']
+    return jsonify(info)
+
 # ─── Startup ───────────────────────────────────────────────────────────────────
 def _handle_signal(signum, frame):
     # Sæt stop-flaget OG afslut processen. Hvis vi kun satte flaget (uden at

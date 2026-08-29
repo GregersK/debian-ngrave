@@ -2,7 +2,13 @@
 
 ## v6.2 (Juni 2026)
 
-Skrifttyper + skilt-sikkerhed + menu-opdeling.
+Skrifttyper + skilt-sikkerhed + menu-opdeling + robust auto-opdatering.
+
+### Robust auto-opdatering (service døde efter opdatering)
+- Servicen kunne blive liggende nede efter en opdatering, indtil maskinen blev genstartet. Årsag: rammer systemd's start-rate-limit → `failed`-tilstand som først ryddes ved reboot.
+- Update-scriptet kører nu `systemctl reset-failed` før genstart, verificerer at servicen faktisk kom op, prøver igen hvis ikke, og gemmer diagnostik (`systemctl status` + `journalctl`) i opdaterings-loggen ved fejl.
+- Ny **System**-sektion under Maskiner viser kørende version + seneste opdaterings-log (`/api/systeminfo`) — så man kan se hvorfor en opdatering evt. fejlede, også fra mobil efter en reboot.
+- Sudoers-reglen (nye installs) udvidet til også at tillade `start` og `reset-failed`.
 
 ### Menu opdelt i to produktioner
 - Nøgler og skilte er to helt forskellige produktioner og har nu hver deres sektion i menuen: **🔑 Nøgler** (Nyt nøgle-job · Nøgle-kø · Nøgle-templates) og **🏷️ Skilte** (Nyt skilt · Skilte-kø · Skilt-templates), adskilt af skillelinjer, med **⚙ Maskiner** som fælles. Jobkøen kan nu åbnes direkte på den rigtige produktion.

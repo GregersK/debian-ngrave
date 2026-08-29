@@ -101,7 +101,7 @@ SERVICE
 
 echo "=== Opretter sudoers-regel for restart ==="
 cat > /etc/sudoers.d/ngrave-restart <<SUDO
-$SERVICE_USER ALL=(root) NOPASSWD: /bin/systemctl restart ngrave
+$SERVICE_USER ALL=(root) NOPASSWD: /bin/systemctl restart ngrave, /bin/systemctl start ngrave, /bin/systemctl reset-failed ngrave
 SUDO
 chmod 440 /etc/sudoers.d/ngrave-restart
 

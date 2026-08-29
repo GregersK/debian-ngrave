@@ -342,6 +342,24 @@ async function sletMaskine(id) {
   }
 }
 
+// System-info: kørende version + seneste auto-opdaterings-log (til at se
+// hvorfor en opdatering evt. fejlede — også fra mobil, efter en reboot).
+async function visSystemInfo() {
+  const pre = document.getElementById('sys-log');
+  const ver = document.getElementById('sys-version');
+  pre.style.display = 'block';
+  pre.textContent = 'Henter...';
+  try {
+    const info = await api('/api/systeminfo');
+    if (ver) ver.textContent = info.version ? '· ' + info.version : '';
+    pre.textContent = (info.update_log && info.update_log.length)
+      ? info.update_log.join('\n')
+      : '(ingen opdaterings-log endnu)';
+  } catch (e) {
+    pre.textContent = 'Kunne ikke hente system-info';
+  }
+}
+
 async function redigerKalibrering(id) {
   const rows = await api('/api/maskiner');
   const r = rows.find(m => m.id === id);

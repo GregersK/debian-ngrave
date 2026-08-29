@@ -39,8 +39,34 @@ if [ -f requirements.txt ]; then
     }
 fi
 
+# Ryd evt. 'failed'-tilstand FØR genstart. Hvis systemd's start-rate-limit
+# er blevet ramt (flere hurtige genstarts-fejl), sidder servicen ellers fast
+# i 'failed' og starter først igen ved reboot — det er den typiske årsag til
+# "servicen kom ikke op efter opdatering".
+sudo -n /bin/systemctl reset-failed ngrave 2>/dev/null || true
+
 if sudo -n /bin/systemctl restart ngrave 2>/dev/null; then
-    log "INFO: opgraderet til $LATEST_TAG og service restartet"
+    sleep 3
+    if systemctl is-active --quiet ngrave 2>/dev/null; then
+        log "INFO: opgraderet til $LATEST_TAG — service kører"
+    else
+        # Kom ikke op → ryd failed-tilstand, prøv én gang til, gem diagnostik.
+        log "WARN: service kom ikke op efter restart til $LATEST_TAG — forsøger igen"
+        sudo -n /bin/systemctl reset-failed ngrave 2>/dev/null || true
+        sudo -n /bin/systemctl start ngrave 2>/dev/null || true
+        sleep 3
+        {
+            echo "----- DIAGNOSTIK $(date '+%F %T') efter fejlet start til $LATEST_TAG -----"
+            systemctl status ngrave --no-pager -l 2>&1 | tail -25
+            journalctl -u ngrave -n 30 --no-pager 2>&1 | tail -30
+            echo "----- diagnostik slut -----"
+        } >> "$LOG" 2>&1 || true
+        if systemctl is-active --quiet ngrave 2>/dev/null; then
+            log "INFO: service kom op efter andet forsøg (til $LATEST_TAG)"
+        else
+            log "FEJL: service er STADIG nede efter opdatering til $LATEST_TAG — se diagnostik ovenfor i denne log"
+        fi
+    fi
 else
-    log "WARN: kunne ikke restarte service via sudo — opgradering deployet, men kører stadig gammel version indtil næste manuel restart"
+    log "WARN: kunne ikke genstarte via sudo (mangler sudoers-regel?)"
 fi
