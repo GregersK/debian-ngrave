@@ -10,7 +10,8 @@ app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
 
 DB = os.environ.get('NGRAVE_DB', os.path.join(os.path.dirname(__file__), 'ngrave.db'))
-PORT = int(os.environ.get('NGRAVE_PORT', '8080'))
+PORT = int(os.environ.get('NGRAVE_PORT', '80'))
+FALLBACK_PORT = 8080  # bruges kun hvis PORT ikke kan bindes (fx non-root uden CAP_NET_BIND_SERVICE)
 HOST = os.environ.get('NGRAVE_HOST', '0.0.0.0')
 AUTH_USER = os.environ.get('NGRAVE_AUTH_USER') or ''
 AUTH_PASS = os.environ.get('NGRAVE_AUTH_PASS') or ''
@@ -801,6 +802,8 @@ def _start_port80_redirector():
     app.logger.info("Port-80-redirector aktiv → :%d", target_port)
 
 if __name__ == '__main__':
+    from werkzeug.serving import make_server
+
     init_db()
     if not AUTH_USER or not AUTH_PASS:
         app.logger.warning(
@@ -811,5 +814,29 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, _handle_signal)
     t = threading.Thread(target=queue_worker, daemon=True)
     t.start()
+
+    # Standard-port er 80. Kan vi ikke binde den (fx non-root uden
+    # CAP_NET_BIND_SERVICE), falder vi tilbage til 8080 i stedet for at crashe.
+    # (make_server binder med det samme, så bind-fejl kan fanges — modsat
+    # app.run() der selv printer og kalder sys.exit.)
+    try:
+        # OSError = permission denied (non-root uden capability).
+        # SystemExit = Werkzeug's egen sys.exit(1) når porten er optaget.
+        srv = make_server(HOST, PORT, app, threaded=True)
+    except (PermissionError, OSError, SystemExit) as e:
+        if PORT == FALLBACK_PORT:
+            raise
+        app.logger.warning("Kunne ikke binde port %d (%s) — falder tilbage til %d",
+                           PORT, e, FALLBACK_PORT)
+        globals()['PORT'] = FALLBACK_PORT
+        srv = make_server(HOST, FALLBACK_PORT, app, threaded=True)
+
+    # Redirect fra 80 → hvis vi ikke selv kører på 80 (best-effort).
     _start_port80_redirector()
-    app.run(host=HOST, port=PORT, debug=False)
+    app.logger.info("nGrave lytter på port %d", PORT)
+    try:
+        srv.serve_forever()
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    finally:
+        srv.server_close()

@@ -2,7 +2,12 @@
 
 ## v6.2 (Juni 2026)
 
-Skrifttyper + skilt-sikkerhed + menu-opdeling + robust auto-opdatering.
+Skrifttyper + skilt-sikkerhed + menu-opdeling + robust auto-opdatering + port 80 som standard.
+
+### Port 80 som standard
+- Standard-porten er nu **80** igen (var midlertidigt 8080 i v6.1). Kan overskrives med `NGRAVE_PORT`.
+- Hvis port 80 ikke kan bindes (fx en non-root proces uden `CAP_NET_BIND_SERVICE`, eller porten er optaget) falder servicen **automatisk tilbage til 8080** i stedet for at crashe — og starter en redirect fra 80 hvis muligt. Så maskinen kommer altid op, uanset opsætning.
+- Kører man på en anden port end 80, 302-redirecter en lille server på port 80 til den rigtige port (uændret), så `http://ngrave.laas.local` uden port stadig virker.
 
 ### Robust auto-opdatering (service døde efter opdatering)
 - Servicen kunne blive liggende nede efter en opdatering, indtil maskinen blev genstartet. Årsag: rammer systemd's start-rate-limit → `failed`-tilstand som først ryddes ved reboot.
