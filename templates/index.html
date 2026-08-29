@@ -570,6 +570,14 @@ tr:hover td { background: var(--hover); }
     </table>
   </div>
 
+  <div class="kort">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h2 style="margin:0;font-size:1rem;">System <span id="sys-version" style="color:var(--text-secondary);font-size:0.8rem;font-weight:normal;"></span></h2>
+      <button class="btn btn-secondary" onclick="visSystemInfo()" style="padding:6px 12px;font-size:0.85rem;">🔄 Opdaterings-log</button>
+    </div>
+    <pre id="sys-log" style="display:none;margin-top:12px;background:var(--bg-tertiary);padding:10px;border-radius:6px;font-size:0.72rem;line-height:1.4;max-height:300px;overflow:auto;white-space:pre-wrap;word-break:break-word;"></pre>
+  </div>
+
   <div class="kort" id="maskine-form" style="display:none;">
     <h2 id="maskine-form-titel">Ny maskine</h2>
     <input type="hidden" id="m-id">
