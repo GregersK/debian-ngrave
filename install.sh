@@ -67,6 +67,15 @@ else
     echo "  Eksisterende $ENV_FILE bevaret"
 fi
 
+# Opdaterings-kanal (stable som standard). Skift til 'beta' på en testmaskine
+# for at hente pre-release-versioner: echo beta | sudo tee /etc/ngrave/channel
+if [ ! -f "$ENV_DIR/channel" ]; then
+    echo stable > "$ENV_DIR/channel"
+    echo "  Opdaterings-kanal: stable ($ENV_DIR/channel)"
+else
+    echo "  Eksisterende kanal bevaret: $(cat "$ENV_DIR/channel")"
+fi
+
 echo "=== Sætter ejerskab ==="
 chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR"
 

@@ -2,7 +2,14 @@
 
 ## v6.2 (Juni 2026)
 
-Skrifttyper + skilt-sikkerhed + menu-opdeling + robust auto-opdatering + port 80 som standard.
+Skrifttyper + skilt-sikkerhed + menu-opdeling + robust auto-opdatering + port 80 som standard + beta-kanal.
+
+### Beta-/stable-kanal (staged rollout)
+- En maskine kan nu vælge opdaterings-kanal i `/etc/ngrave/channel` (eller `/opt/ngrave/channel`): **`stable`** (standard) eller **`beta`**.
+- **stable** henter kun endelige releases (`vX.Y[.Z]`). **beta** henter også pre-releases (`vX.Y-beta1`, `-rc1`, `-alpha`).
+- Så man kan tagge fx `v6.3-beta1`, teste på 1-2 beta-maskiner, og først derefter tagge `v6.3` til hele flåden — uden "big bang". En beta-maskine rykker automatisk op til den endelige version når den udkommer.
+- Aktivér beta på en maskine: `echo beta | sudo tee /etc/ngrave/channel`. Tilbage til stable: `echo stable | sudo tee /etc/ngrave/channel`.
+- Kanalen + kørende version vises i **Maskiner → System**.
 
 ### Port 80 som standard
 - Standard-porten er nu **80** igen (var midlertidigt 8080 i v6.1). Kan overskrives med `NGRAVE_PORT`.

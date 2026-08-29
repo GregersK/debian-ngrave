@@ -351,7 +351,8 @@ async function visSystemInfo() {
   pre.textContent = 'Henter...';
   try {
     const info = await api('/api/systeminfo');
-    if (ver) ver.textContent = info.version ? '· ' + info.version : '';
+    if (ver) ver.textContent = (info.version ? '· ' + info.version : '') +
+      (info.channel === 'beta' ? '  ⚠️ BETA-kanal' : '');
     pre.textContent = (info.update_log && info.update_log.length)
       ? info.update_log.join('\n')
       : '(ingen opdaterings-log endnu)';

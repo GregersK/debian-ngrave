@@ -30,3 +30,6 @@ journalctl*
 
 # Temp
 /tmp/
+
+# Opdaterings-kanal (fallback-placering, deployment-artefakt)
+/channel

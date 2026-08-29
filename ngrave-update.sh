@@ -12,14 +12,40 @@ log() {
 
 cd "$INSTALL_DIR"
 
-if ! git fetch --tags --quiet origin 2>/dev/null; then
+if ! git fetch --tags --prune --quiet origin 2>/dev/null; then
     log "WARN: fetch fejlede (netværk?)"
     exit 0
 fi
 
-LATEST_TAG=$(git tag -l 'v[0-9]*' --sort=-v:refname | head -n 1 || true)
+# ── Kanal: stable (standard) eller beta ──────────────────────────────────────
+# Skriv 'beta' i /etc/ngrave/channel (eller /opt/ngrave/channel) for at lade
+# DENNE maskine hente pre-release-versioner (fx v6.3-beta1). Alt andet = stable.
+CHANNEL=stable
+for cf in /etc/ngrave/channel "$INSTALL_DIR/channel"; do
+    if [ -r "$cf" ]; then
+        CHANNEL=$(head -n1 "$cf" | tr -d '[:space:]' | tr 'A-Z' 'a-z')
+        break
+    fi
+done
+[ "$CHANNEL" = "beta" ] || CHANNEL=stable
+
+# Lær git at -alpha/-beta/-rc er pre-release-suffikser (sorterer UNDER final),
+# så en beta-maskine automatisk rykker op til den endelige version når den kommer.
+git config --unset-all versionsort.suffix 2>/dev/null || true
+git config --add versionsort.suffix -alpha
+git config --add versionsort.suffix -beta
+git config --add versionsort.suffix -rc
+
+if [ "$CHANNEL" = "beta" ]; then
+    # beta: nyeste tag overhovedet (inkl. pre-releases)
+    LATEST_TAG=$(git tag -l 'v[0-9]*' --sort=-version:refname | head -n 1 || true)
+else
+    # stable: nyeste tag UDEN pre-release-suffiks (ingen bindestreg)
+    LATEST_TAG=$(git tag -l 'v[0-9]*' --sort=-version:refname | grep -v -- '-' | head -n 1 || true)
+fi
+
 if [ -z "$LATEST_TAG" ]; then
-    log "INFO: ingen release-tags fundet — ingen handling"
+    log "INFO: ingen tags for kanal '$CHANNEL' — ingen handling"
     exit 0
 fi
 
@@ -29,7 +55,7 @@ if [ "$CURRENT_TAG" = "$LATEST_TAG" ]; then
     exit 0
 fi
 
-log "INFO: opgraderer fra '${CURRENT_TAG:-<ingen tag>}' til '$LATEST_TAG'"
+log "INFO: [kanal:$CHANNEL] opgraderer fra '${CURRENT_TAG:-<ingen tag>}' til '$LATEST_TAG'"
 
 git checkout --quiet "$LATEST_TAG"
 
