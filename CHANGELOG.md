@@ -2,7 +2,12 @@
 
 ## v6.2 (Juni 2026)
 
-Skrifttyper + skilt-sikkerhed + menu-opdeling + robust auto-opdatering + port 80 som standard + beta-kanal.
+Skrifttyper + skilt-sikkerhed + menu-opdeling + robust auto-opdatering + port 80 som standard + beta-kanal + opdaterings-overvågning.
+
+### Opdaterings-overvågning (frossen flåde opdages nu)
+- Update-scriptet skelner nu mellem **login-fejl** (udløbet/manglende token) og **rigtige netværksfejl** i loggen — i stedet for at kalde alt "netværk?", som tidligere skjulte et frosset repo i månedsvis.
+- `GIT_TERMINAL_PROMPT=0`: git kan aldrig hænge på et login-prompt (systemd har ingen tty).
+- Hver vellykket tjek skriver en **heartbeat**. `/api/systeminfo` + **Maskiner → System** advarer hvis maskinen ikke har tjekket ind i >48 timer (så en maskine der er holdt op med at opdatere ikke går ubemærket).
 
 ### Beta-/stable-kanal (staged rollout)
 - En maskine kan nu vælge opdaterings-kanal i `/etc/ngrave/channel` (eller `/opt/ngrave/channel`): **`stable`** (standard) eller **`beta`**.

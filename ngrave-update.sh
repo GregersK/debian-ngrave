@@ -5,6 +5,7 @@ set -euo pipefail
 
 INSTALL_DIR=/opt/ngrave
 LOG=/var/log/ngrave-update.log
+HEARTBEAT="$INSTALL_DIR/.last-update-check"
 
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S')  $*" >> "$LOG"
@@ -12,10 +13,23 @@ log() {
 
 cd "$INSTALL_DIR"
 
-if ! git fetch --tags --prune --quiet origin 2>/dev/null; then
-    log "WARN: fetch fejlede (netværk?)"
+# git må ALDRIG hænge på et interaktivt login-prompt (systemd har ingen tty).
+export GIT_TERMINAL_PROMPT=0
+
+# Hent — og skeln mellem auth-fejl (udløbet token) og rigtige netværksfejl,
+# så et frosset repo ikke skjules bag "netværk?" i månedsvis.
+if ! fetch_err=$(git fetch --tags --prune origin 2>&1 >/dev/null); then
+    if echo "$fetch_err" | grep -qiE 'authentication|could not read username|invalid username or password|terminal prompts disabled|403|401|permission denied'; then
+        log "FEJL: git-login afvist — token udløbet/manglende? Opdatér ~/.git-credentials. [$(echo "$fetch_err" | head -1)]"
+    else
+        log "WARN: fetch fejlede (netværk?): $(echo "$fetch_err" | head -1)"
+    fi
     exit 0
 fi
+
+# Heartbeat: registrér seneste vellykkede tjek (bruges af /api/systeminfo til
+# at advare hvis en maskine holder op med at opdatere).
+date '+%Y-%m-%dT%H:%M:%S%z' > "$HEARTBEAT" 2>/dev/null || true
 
 # ── Kanal: stable (standard) eller beta ──────────────────────────────────────
 # Skriv 'beta' i /etc/ngrave/channel (eller /opt/ngrave/channel) for at lade
