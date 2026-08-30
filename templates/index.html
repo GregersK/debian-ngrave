@@ -578,6 +578,21 @@ tr:hover td { background: var(--hover); }
     <pre id="sys-log" style="display:none;margin-top:12px;background:var(--bg-tertiary);padding:10px;border-radius:6px;font-size:0.72rem;line-height:1.4;max-height:300px;overflow:auto;white-space:pre-wrap;word-break:break-word;"></pre>
   </div>
 
+  <div class="kort">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h2 style="margin:0;font-size:1rem;">💾 Backup af templates</h2>
+    </div>
+    <p style="color:var(--text-secondary);font-size:0.8rem;margin-top:8px;">
+      Eksportér alle nøgle- og skilt-templates til en JSON-fil (til opbevaring et sikkert sted, eller til at overføre til en anden maskine). Import opretter nye templates og opdaterer eksisterende med samme navn — sletter aldrig noget.
+    </p>
+    <div class="mt gap">
+      <button class="btn btn-secondary" onclick="eksporterTemplates()">⬇ Eksportér</button>
+      <button class="btn btn-secondary" onclick="document.getElementById('import-fil-input').click()">⬆ Importér fra fil</button>
+      <input type="file" id="import-fil-input" accept="application/json" style="display:none;" onchange="importerTemplates(this)">
+      <span id="backup-status" style="font-size:0.85rem;color:var(--text-secondary);"></span>
+    </div>
+  </div>
+
   <div class="kort" id="maskine-form" style="display:none;">
     <h2 id="maskine-form-titel">Ny maskine</h2>
     <input type="hidden" id="m-id">

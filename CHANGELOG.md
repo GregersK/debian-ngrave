@@ -2,7 +2,12 @@
 
 ## v6.2 (Juni 2026)
 
-Skrifttyper + skilt-sikkerhed + menu-opdeling + robust auto-opdatering + port 80 som standard + beta-kanal + opdaterings-overvågning.
+Skrifttyper + skilt-sikkerhed + menu-opdeling + robust auto-opdatering + port 80 som standard + beta-kanal + opdaterings-overvågning + template-backup.
+
+### Backup af templates (eksport/import)
+- Ny **💾 Backup af templates**-sektion under **Maskiner**: eksportér alle nøgle- og skilt-templates til en JSON-fil, og importér dem igen (på samme eller en anden maskine).
+- `GET /api/export` + `POST /api/import`. Import opretter nye templates (match på navn) og opdaterer eksisterende — **sletter aldrig noget**, sikker at køre flere gange.
+- Kun de portable felter eksporteres (ikke `id`/maskine-tilknytning, som er lokale til hver installation).
 
 ### Opdaterings-overvågning (frossen flåde opdages nu)
 - Update-scriptet skelner nu mellem **login-fejl** (udløbet/manglende token) og **rigtige netværksfejl** i loggen — i stedet for at kalde alt "netværk?", som tidligere skjulte et frosset repo i månedsvis.

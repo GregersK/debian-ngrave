@@ -342,6 +342,59 @@ async function sletMaskine(id) {
   }
 }
 
+// ─── Backup: eksport/import af templates ─────────────────────────────────────
+async function eksporterTemplates() {
+  const status = document.getElementById('backup-status');
+  status.textContent = 'Eksporterer...';
+  status.style.color = 'var(--text-secondary)';
+  try {
+    const data = await api('/api/export');
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const dato = new Date().toISOString().slice(0, 10);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ngrave-templates-${dato}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    status.textContent = `✓ Eksporteret: ${data.templates.length} nøgle-templates, ${data.skilt_templates.length} skilt-templates`;
+    status.style.color = '#27ae60';
+  } catch (e) {
+    status.textContent = '✗ Eksport fejlede';
+    status.style.color = 'var(--accent)';
+  }
+}
+
+async function importerTemplates(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const status = document.getElementById('backup-status');
+  status.textContent = 'Importerer...';
+  status.style.color = 'var(--text-secondary)';
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    const res = await api('/api/import', 'POST', data);
+    if (res.ok) {
+      status.textContent = `✓ Nøgle-templates: ${res.templates.created} nye, ${res.templates.updated} opdateret · ` +
+        `Skilt-templates: ${res.skilt_templates.created} nye, ${res.skilt_templates.updated} opdateret`;
+      status.style.color = '#27ae60';
+      await initDropdowns();
+      hentTemplates();
+      hentSkiltTemplates();
+    } else {
+      status.textContent = '✗ Import fejlede: ' + (res.fejl || 'ukendt fejl');
+      status.style.color = 'var(--accent)';
+    }
+  } catch (e) {
+    status.textContent = '✗ Ugyldig fil: ' + e.message;
+    status.style.color = 'var(--accent)';
+  }
+  input.value = '';
+}
+
 // System-info: kørende version + seneste auto-opdaterings-log (til at se
 // hvorfor en opdatering evt. fejlede — også fra mobil, efter en reboot).
 async function visSystemInfo() {
