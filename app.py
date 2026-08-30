@@ -739,6 +739,95 @@ def get_fonts():
     from workers.font_manager import FONTS
     return jsonify(FONTS)
 
+# ─── Backup: eksport/import af templates ───────────────────────────────────
+# Kolonner der er PORTABLE på tværs af maskiner (dvs. ikke id/maskine_id/aktiv/
+# oprettet, som er lokale til hver installation). Whitelist — bruges direkte i
+# SQL som kolonnenavne, så den må ALDRIG bygges fra brugerinput.
+TEMPLATE_EXPORT_COLS = [
+    'navn', 'beskrivelse', 'noejle_type', 'zone_bredde_mm', 'zone_hoejde_mm',
+    'tekst_hoejde_mm', 'linje_afstand', 'feed_xy', 'feed_z', 'spindle_rpm',
+    'z_op_mm', 'prox_offset_mm', 'font',
+    'markering_aktiv', 'markering_navn', 'markering_x', 'markering_y',
+    'markering_justering', 'markering_font', 'markering_hoejde_mm',
+    'markering_bogstav_afstand_mm', 'markering_position',
+    'system_aktiv', 'system_navn', 'system_x', 'system_y',
+    'system_justering', 'system_font', 'system_hoejde_mm',
+    'system_bogstav_afstand_mm', 'system_position',
+    'loebe_aktiv', 'loebe_navn', 'loebe_x', 'loebe_y',
+    'loebe_justering', 'loebe_font', 'loebe_hoejde_mm',
+    'loebe_bogstav_afstand_mm', 'loebe_min_laengde',
+    'loebe_prefix_aktiv', 'loebe_suffix_aktiv', 'loebe_position',
+    'ekstra_aktiv', 'ekstra_navn', 'ekstra_x', 'ekstra_y',
+    'ekstra_justering', 'ekstra_font', 'ekstra_hoejde_mm',
+    'ekstra_bogstav_afstand_mm', 'ekstra_position',
+    'grid_json',
+]
+SKILT_TEMPLATE_EXPORT_COLS = [
+    'navn', 'beskrivelse', 'skilt_bredde_mm', 'skilt_hoejde_mm',
+    'antal_linjer', 'linjer_config', 'margin_top_mm', 'margin_bottom_mm',
+    'linje_afstand_mm', 'feed_xy', 'feed_z', 'spindle_rpm', 'z_op_mm',
+    'prox_offset_mm',
+]
+
+@app.route('/api/export')
+@require_auth
+def export_templates():
+    """Eksporterer alle aktive nøgle- og skilt-templates som portabel JSON
+    (uden id/maskine_id, som er lokale til denne installation)."""
+    db = get_db()
+    def dump(table, cols):
+        rows = db.execute(
+            f"SELECT {','.join(cols)} FROM {table} WHERE aktiv=1 ORDER BY navn"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    return jsonify({
+        'exported_at': datetime.now().isoformat(timespec='seconds'),
+        'templates': dump('templates', TEMPLATE_EXPORT_COLS),
+        'skilt_templates': dump('skilt_templates', SKILT_TEMPLATE_EXPORT_COLS),
+    })
+
+def _import_rows(db, table, cols, rows):
+    created = updated = 0
+    for row in rows:
+        if not isinstance(row, dict) or not row.get('navn'):
+            continue
+        present = [c for c in cols if c in row]  # kun whitelistede kolonner
+        if 'navn' not in present:
+            continue
+        existing = db.execute(
+            f"SELECT id FROM {table} WHERE navn=? AND aktiv=1", (row['navn'],)
+        ).fetchone()
+        values = [row[c] for c in present]
+        if existing:
+            set_clause = ','.join(f"{c}=?" for c in present)
+            db.execute(f"UPDATE {table} SET {set_clause} WHERE id=?",
+                      values + [existing['id']])
+            updated += 1
+        else:
+            placeholders = ','.join('?' for _ in present)
+            db.execute(f"INSERT INTO {table} ({','.join(present)}) VALUES ({placeholders})", values)
+            created += 1
+    return {'created': created, 'updated': updated}
+
+@app.route('/api/import', methods=['POST'])
+@require_auth
+def import_templates():
+    """Importerer templates fra en tidligere eksport. Opretter nye (match på
+    navn) og opdaterer eksisterende — sletter ALDRIG noget."""
+    d = request.json or {}
+    db = get_db()
+    try:
+        result = {
+            'templates': _import_rows(db, 'templates', TEMPLATE_EXPORT_COLS, d.get('templates') or []),
+            'skilt_templates': _import_rows(db, 'skilt_templates', SKILT_TEMPLATE_EXPORT_COLS, d.get('skilt_templates') or []),
+        }
+        db.commit()
+        return jsonify({'ok': True, **result})
+    except Exception:
+        db.rollback()
+        app.logger.exception("import_templates fejl")
+        return jsonify({'ok': False, 'fejl': 'Import fejlede — ugyldigt format?'}), 400
+
 # System-diagnostik: seneste linjer af auto-opdaterings-loggen + kørende version.
 # Gør det muligt at se hvorfor en opdatering evt. fejlede — også fra mobil.
 @app.route('/api/systeminfo')
