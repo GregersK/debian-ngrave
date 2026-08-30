@@ -745,7 +745,8 @@ def get_fonts():
 @require_auth
 def get_systeminfo():
     import subprocess
-    info = {'version': None, 'channel': 'stable', 'update_log': []}
+    info = {'version': None, 'channel': 'stable', 'update_log': [],
+            'last_check': None, 'stale_hours': None, 'advarsel': None}
     try:
         info['version'] = subprocess.run(
             ['git', 'describe', '--tags', '--always'],
@@ -762,6 +763,23 @@ def get_systeminfo():
                 break
         except Exception:
             continue
+    # Heartbeat: hvornår tjekkede auto-updateren sidst med succes?
+    hb_path = os.environ.get('NGRAVE_HEARTBEAT',
+                             os.path.join(os.path.dirname(__file__), '.last-update-check'))
+    try:
+        from datetime import datetime as _dt, timezone as _tz
+        ts = os.path.getmtime(hb_path)
+        info['last_check'] = _dt.fromtimestamp(ts).isoformat(timespec='seconds')
+        age_h = (_dt.now().timestamp() - ts) / 3600.0
+        info['stale_hours'] = round(age_h, 1)
+        if age_h > 48:
+            info['advarsel'] = (f"Auto-opdatering har ikke tjekket ind i {int(age_h)} timer "
+                                "— maskinen henter måske ikke opdateringer (udløbet token/netværk?). "
+                                "Se opdaterings-loggen.")
+    except Exception:
+        info['advarsel'] = ("Ingen heartbeat fundet — auto-opdatering har aldrig kørt med denne version, "
+                            "eller er ikke aktiv.")
+
     log_path = os.environ.get('NGRAVE_UPDATE_LOG', '/var/log/ngrave-update.log')
     try:
         with open(log_path, encoding='utf-8', errors='replace') as f:

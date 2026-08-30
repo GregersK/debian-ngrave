@@ -352,10 +352,15 @@ async function visSystemInfo() {
   try {
     const info = await api('/api/systeminfo');
     if (ver) ver.textContent = (info.version ? '· ' + info.version : '') +
-      (info.channel === 'beta' ? '  ⚠️ BETA-kanal' : '');
-    pre.textContent = (info.update_log && info.update_log.length)
+      (info.channel === 'beta' ? '  ⚠️ BETA-kanal' : '') +
+      (info.last_check ? '  · sidst tjekket ' + info.last_check.replace('T',' ') : '');
+    const adv = info.advarsel
+      ? `⚠️ ${info.advarsel}\n${'─'.repeat(40)}\n`
+      : '';
+    pre.textContent = adv + ((info.update_log && info.update_log.length)
       ? info.update_log.join('\n')
-      : '(ingen opdaterings-log endnu)';
+      : '(ingen opdaterings-log endnu)');
+    pre.style.borderLeft = info.advarsel ? '4px solid var(--accent)' : '';
   } catch (e) {
     pre.textContent = 'Kunne ikke hente system-info';
   }

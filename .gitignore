@@ -33,3 +33,6 @@ journalctl*
 
 # Opdaterings-kanal (fallback-placering, deployment-artefakt)
 /channel
+
+# Heartbeat fra auto-updateren
+/.last-update-check
