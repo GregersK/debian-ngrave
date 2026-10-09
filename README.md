@@ -131,16 +131,31 @@ ngrave/
 ├── schema.sql              # Database schema (auto-migrering)
 ├── requirements.txt        # Python dependencies
 ├── install.sh              # Debian 12 installationsscript
+├── ngrave-update.sh        # Tag-baseret auto-opdatering (stable/beta)
 ├── workers/
 │   ├── block_font.py       # Custom single-stroke font med ÆØÅ
 │   ├── font_manager.py     # Font router (block + Hershey fonts)
 │   ├── gcode_worker.py     # G-code generator til S5
 │   ├── cipher_worker.py    # CIPHER CEF generator til S3
-│   └── skilt_worker.py     # G-code til skiltegravering
+│   └── skilt_worker.py     # Layout-motor + G-code til skilte (bruges også af preview)
 ├── templates/
-│   └── index.html          # Web UI (single-file SPA)
-└── static/                 # Statiske filer (placeholder)
+│   └── index.html          # Web UI (HTML)
+├── static/
+│   ├── ngrave.css          # Designsystem (lyst/mørkt, mobil først)
+│   ├── ui.js               # Hjælpere, toasts, modal, navigation, statuslinje
+│   ├── ngrave_a.js         # Nøgle-job, plade-visning, køer
+│   ├── skilt.js            # Skilt-editor, preview, skrifttype-galleri
+│   └── ngrave_b.js         # Templates, maskiner, system, backup
+└── tests/                  # Enhedstests (layout-motor + API)
 ```
+
+### Kør tests
+
+```bash
+python3 -m unittest discover -s tests
+```
+
+Testene bruger en midlertidig database og rører aldrig en rigtig installations data.
 
 ---
 
