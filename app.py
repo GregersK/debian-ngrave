@@ -12,6 +12,7 @@ app.logger.setLevel(logging.INFO)
 DB = os.environ.get('NGRAVE_DB', os.path.join(os.path.dirname(__file__), 'ngrave.db'))
 PORT = int(os.environ.get('NGRAVE_PORT', '80'))
 FALLBACK_PORT = 8080  # bruges kun hvis PORT ikke kan bindes (fx non-root uden CAP_NET_BIND_SERVICE)
+MAX_EMNER_PR_ORDRE = 5000   # sikkerhedsgrænse mod tastefejl (fx 100000 i stedet for 100)
 HOST = os.environ.get('NGRAVE_HOST', '0.0.0.0')
 AUTH_USER = os.environ.get('NGRAVE_AUTH_USER') or ''
 AUTH_PASS = os.environ.get('NGRAVE_AUTH_PASS') or ''
@@ -154,6 +155,7 @@ def migrate_db():
         ("templates",   "ekstra_position",                "INTEGER NOT NULL DEFAULT 4"),
         ("job_batches", "loebe_prefix",                   "TEXT NOT NULL DEFAULT ''"),
         ("job_batches", "loebe_suffix",                   "TEXT NOT NULL DEFAULT ''"),
+        ("job_batches", "fejl_besked",                    "TEXT"),
         ("job_batches", "ekstra_tekst",       "TEXT NOT NULL DEFAULT ''"),
         ("jobs",        "ekstra_tekst",       "TEXT NOT NULL DEFAULT ''"),
         ("skilt_templates","margin_top_mm",   "REAL"),
@@ -188,6 +190,18 @@ def cleanup_running_on_startup():
                 # Tabel har ikke fejl_besked-kolonne (job_batches mangler den)
                 db.execute(f"UPDATE {tbl} SET status='fejl' WHERE status='running'")
         db.commit()
+
+def _kort_fejl(e):
+    """Menneskelig fejlbesked til jobkøen (i stedet for rå Python-fejl)."""
+    if isinstance(e, ValueError):
+        return str(e)[:300]
+    if isinstance(e, TimeoutError):
+        return "Maskinen svarede ikke (timeout) — er den tændt og på netværket?"
+    if isinstance(e, ConnectionRefusedError):
+        return "Maskinen afviste forbindelsen — kører den, og er port/IP rigtig?"
+    if isinstance(e, OSError):
+        return f"Netværksfejl mod maskinen: {e.strerror or e}"[:300]
+    return f"Uventet fejl ({type(e).__name__}) — se server-log"
 
 # ─── Job Queue Worker ─────────────────────────────────────────────────────────
 stop_event = threading.Event()
@@ -252,7 +266,8 @@ def queue_worker():
                         db.execute("UPDATE job_batches SET status='done', faerdig=? WHERE id=?",
                                    (datetime.now(), batch_id))
                     except Exception as e:
-                        db.execute("UPDATE job_batches SET status='fejl' WHERE id=?", (batch_id,))
+                        db.execute("UPDATE job_batches SET status='fejl', fejl_besked=? WHERE id=?",
+                                   (_kort_fejl(e), batch_id))
                         app.logger.exception("Batch %s fejl: %s", batch_id, e)
                     db.commit()
                     continue
@@ -284,7 +299,7 @@ def queue_worker():
                                    (datetime.now(), skilt_id))
                     except Exception as e:
                         db.execute("UPDATE skilte_jobs SET status='fejl', fejl_besked=? WHERE id=?",
-                                   (str(e)[:200], skilt_id))
+                                   (_kort_fejl(e), skilt_id))
                         app.logger.exception("Skilt %s fejl: %s", skilt_id, e)
                     db.commit()
                     continue
@@ -470,21 +485,37 @@ def get_skilt_templates():
     rows = get_db().execute("SELECT * FROM skilt_templates WHERE aktiv=1")
     return jsonify([dict(r) for r in rows])
 
+def _nul(v, typ=float):
+    """Tom streng/None -> None, ellers typet tal (til valgfrie felter)."""
+    if v is None or v == '':
+        return None
+    return typ(v)
+
+def _skilt_template_vaerdier(d):
+    return (d['navn'], d.get('beskrivelse', ''),
+            d['skilt_bredde_mm'], d['skilt_hoejde_mm'], d['antal_linjer'],
+            json.dumps(d['linjer_config']),
+            _nul(d.get('margin_top_mm')), _nul(d.get('margin_bottom_mm')),
+            _nul(d.get('linje_afstand_mm')),
+            _nul(d.get('feed_xy'), int), _nul(d.get('feed_z'), int),
+            _nul(d.get('spindle_rpm'), int), _nul(d.get('z_op_mm')),
+            _nul(d.get('prox_offset_mm')), _nul(d.get('maskine_id'), int))
+
 @app.route('/api/skilt-templates', methods=['POST'])
 @require_auth
 def create_skilt_template():
     d = request.json or {}
     db = get_db()
-    cur = db.execute("""
-        INSERT INTO skilt_templates (
-            navn, beskrivelse, skilt_bredde_mm, skilt_hoejde_mm, antal_linjer,
-            linjer_config, margin_top_mm, margin_bottom_mm, linje_afstand_mm, maskine_id
-        ) VALUES (?,?,?,?,?,?,?,?,?,?)
-    """, (d['navn'], d.get('beskrivelse',''),
-          d['skilt_bredde_mm'], d['skilt_hoejde_mm'], d['antal_linjer'],
-          json.dumps(d['linjer_config']),
-          d.get('margin_top_mm'), d.get('margin_bottom_mm'), d.get('linje_afstand_mm'),
-          d.get('maskine_id')))
+    try:
+        cur = db.execute("""
+            INSERT INTO skilt_templates (
+                navn, beskrivelse, skilt_bredde_mm, skilt_hoejde_mm, antal_linjer,
+                linjer_config, margin_top_mm, margin_bottom_mm, linje_afstand_mm,
+                feed_xy, feed_z, spindle_rpm, z_op_mm, prox_offset_mm, maskine_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, _skilt_template_vaerdier(d))
+    except (KeyError, ValueError, TypeError):
+        return jsonify({'ok': False, 'fejl': 'Ugyldige eller manglende felter'}), 400
     db.commit()
     return jsonify({'ok': True, 'id': cur.lastrowid})
 
@@ -493,16 +524,19 @@ def create_skilt_template():
 def update_skilt_template(id):
     d = request.json or {}
     db = get_db()
+    try:
+        vals = _skilt_template_vaerdier(d)
+    except (KeyError, ValueError, TypeError):
+        return jsonify({'ok': False, 'fejl': 'Ugyldige eller manglende felter'}), 400
     db.execute("""
         UPDATE skilt_templates SET
             navn=?, beskrivelse=?, skilt_bredde_mm=?, skilt_hoejde_mm=?,
             antal_linjer=?, linjer_config=?,
-            margin_top_mm=?, margin_bottom_mm=?, linje_afstand_mm=?
+            margin_top_mm=?, margin_bottom_mm=?, linje_afstand_mm=?,
+            feed_xy=?, feed_z=?, spindle_rpm=?, z_op_mm=?, prox_offset_mm=?,
+            maskine_id=?
         WHERE id=?
-    """, (d['navn'], d.get('beskrivelse',''),
-          d['skilt_bredde_mm'], d['skilt_hoejde_mm'], d['antal_linjer'],
-          json.dumps(d['linjer_config']),
-          d.get('margin_top_mm'), d.get('margin_bottom_mm'), d.get('linje_afstand_mm'), id))
+    """, vals + (id,))
     db.commit()
     return jsonify({'ok': True})
 
@@ -568,7 +602,15 @@ def create_batch():
     d = request.json or {}
     db = get_db()
 
-    tmpl = db.execute("SELECT * FROM templates WHERE id=?", (d['template_id'],)).fetchone()
+    try:
+        template_id = int(d['template_id'])
+        maskine_id = int(d['maskine_id'])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({'ok': False, 'fejl': 'Vælg template og maskine'}), 400
+    if not db.execute("SELECT 1 FROM maskiner WHERE id=? AND aktiv=1", (maskine_id,)).fetchone():
+        return jsonify({'ok': False, 'fejl': 'Maskinen findes ikke'}), 400
+
+    tmpl = db.execute("SELECT * FROM templates WHERE id=?", (template_id,)).fetchone()
     if not tmpl:
         return jsonify({'ok': False, 'fejl': 'Template findes ikke'}), 404
 
@@ -585,15 +627,20 @@ def create_batch():
     loebe_suffix = d.get('loebe_suffix', '').strip() if tmpl['loebe_suffix_aktiv'] else ''
     loebe_min    = int(tmpl['loebe_min_laengde'] or 0)
 
-    if loebe_aktiv:
-        fra = int(d.get('loebe_fra', 1))
-        til = int(d.get('loebe_til', 1))
-    else:
-        fra = 1
-        til = int(d.get('antal', 1))
+    try:
+        if loebe_aktiv:
+            fra = int(d.get('loebe_fra', 1))
+            til = int(d.get('loebe_til', 1))
+        else:
+            fra = 1
+            til = int(d.get('antal', 1))
+        start_slot = max(1, int(d.get('start_slot', 1))) - 1
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'fejl': 'Løbenummer, antal og start-slot skal være hele tal'}), 400
 
     antal = til - fra + 1
-    start_slot = max(1, int(d.get('start_slot', 1))) - 1
+    if antal > MAX_EMNER_PR_ORDRE:
+        return jsonify({'ok': False, 'fejl': f'For mange emner ({antal}) — max {MAX_EMNER_PR_ORDRE} pr. ordre. Tastefejl?'}), 400
     plade_size = len(slots)
 
     if antal <= 0:
@@ -619,7 +666,7 @@ def create_batch():
         cur = db.execute("""
             INSERT INTO job_batches (navn, template_id, maskine_id, system_nr, type_felt, ekstra_tekst, loebe_fra, loebe_til, loebe_prefix, loebe_suffix, status)
             VALUES (?,?,?,?,?,?,?,?,?,?,?)
-        """, (navn, d['template_id'], d['maskine_id'], system_nr, type_felt, ekstra_tekst, loebe_cursor, batch_end, loebe_prefix, loebe_suffix, status))
+        """, (navn, template_id, maskine_id, system_nr, type_felt, ekstra_tekst, loebe_cursor, batch_end, loebe_prefix, loebe_suffix, status))
         batch_id = cur.lastrowid
 
         for i, slot in enumerate(slots_i_batch):
@@ -699,21 +746,83 @@ def get_skilte():
     """)
     return jsonify([dict(r) for r in rows])
 
+def _skilt_spec(d):
+    """Bygger layout-input fra en request. Tomme linjer udelades (både i
+    forhåndsvisning og gravering, så de to altid er ens)."""
+    linjer = [l for l in (d.get('linjer') or [])
+              if isinstance(l, dict) and str(l.get('tekst', '')).strip()]
+    return {
+        'skilt_bredde_mm': float(d['skilt_bredde_mm']),
+        'skilt_hoejde_mm': float(d['skilt_hoejde_mm']),
+        'linjer_json': linjer,
+        'margin_top_mm': d.get('margin_top_mm'),
+        'margin_bottom_mm': d.get('margin_bottom_mm'),
+        'linje_afstand_mm': d.get('linje_afstand_mm'),
+    }
+
+@app.route('/api/skilt/preview', methods=['POST'])
+@require_auth
+def preview_skilt():
+    """Præcis det layout der graveres (samme motor), inkl. fejl/advarsler."""
+    from workers.skilt_worker import layout_skilt
+    try:
+        lay = layout_skilt(_skilt_spec(request.json or {}))
+    except (KeyError, ValueError, TypeError):
+        return jsonify({'ok': False, 'fejl': ['Ugyldig størrelse'], 'advarsler': [], 'linjer': []}), 400
+    for l in lay['linjer']:
+        l.pop('strokes', None)
+    return jsonify(lay)
+
 @app.route('/api/skilte', methods=['POST'])
 @require_auth
 def create_skilt():
+    from workers.skilt_worker import layout_skilt
     d = request.json or {}
     db = get_db()
+    try:
+        spec = _skilt_spec(d)
+        maskine_id = int(d['maskine_id'])
+    except (KeyError, ValueError, TypeError):
+        return jsonify({'ok': False, 'fejl': 'Vælg maskine og angiv skiltets størrelse'}), 400
+    if not spec['linjer_json']:
+        return jsonify({'ok': False, 'fejl': 'Skriv tekst på mindst én linje'}), 400
+    if not db.execute("SELECT 1 FROM maskiner WHERE id=? AND aktiv=1", (maskine_id,)).fetchone():
+        return jsonify({'ok': False, 'fejl': 'Maskinen findes ikke'}), 400
+    # Afvis med det samme (ikke først i køen) hvis teksten ikke passer på skiltet.
+    lay = layout_skilt(spec)
+    if not lay['ok']:
+        return jsonify({'ok': False, 'fejl': 'Passer ikke på skiltet: ' + '; '.join(lay['fejl'])}), 400
 
-    navn = d.get('navn') or f"Skilt_{d['skilt_bredde_mm']}x{d['skilt_hoejde_mm']}"
-
+    navn = (d.get('navn') or '').strip() or \
+        f"{spec['linjer_json'][0]['tekst'][:30]} ({spec['skilt_bredde_mm']:g}x{spec['skilt_hoejde_mm']:g})"
     cur = db.execute("""
         INSERT INTO skilte_jobs (navn, maskine_id, template_id, skilt_bredde_mm, skilt_hoejde_mm, linjer_json, margin_top_mm, margin_bottom_mm, linje_afstand_mm)
         VALUES (?,?,?,?,?,?,?,?,?)
-    """, (navn, d['maskine_id'], d.get('template_id'), d['skilt_bredde_mm'], d['skilt_hoejde_mm'],
-          json.dumps(d['linjer']), d.get('margin_top_mm'), d.get('margin_bottom_mm'), d.get('linje_afstand_mm')))
+    """, (navn, maskine_id, _nul(d.get('template_id'), int), spec['skilt_bredde_mm'], spec['skilt_hoejde_mm'],
+          json.dumps(spec['linjer_json']), _nul(d.get('margin_top_mm')), _nul(d.get('margin_bottom_mm')),
+          _nul(d.get('linje_afstand_mm'))))
     db.commit()
-    return jsonify({'ok': True, 'id': cur.lastrowid})
+    return jsonify({'ok': True, 'id': cur.lastrowid, 'advarsler': lay['advarsler']})
+
+@app.route('/api/skilte/<int:id>/gentag', methods=['POST'])
+@require_auth
+def gentag_skilt(id):
+    db = get_db()
+    cur = db.execute("UPDATE skilte_jobs SET status='pending', fejl_besked=NULL, startet=NULL, faerdig=NULL "
+                     "WHERE id=? AND status='fejl'", (id,))
+    db.commit()
+    return jsonify({'ok': cur.rowcount == 1})
+
+@app.route('/api/batches/<int:id>/gentag', methods=['POST'])
+@require_auth
+def gentag_batch(id):
+    db = get_db()
+    cur = db.execute("UPDATE job_batches SET status='pending', fejl_besked=NULL, startet=NULL, faerdig=NULL "
+                     "WHERE id=? AND status='fejl'", (id,))
+    if cur.rowcount == 1:
+        db.execute("UPDATE jobs SET status='pending', fejl_besked=NULL, udfoert=NULL WHERE batch_id=?", (id,))
+    db.commit()
+    return jsonify({'ok': cur.rowcount == 1})
 
 @app.route('/api/skilte/<int:id>/annuller', methods=['POST'])
 @require_auth
@@ -728,9 +837,14 @@ def annuller_skilt(id):
 @require_auth
 def get_status():
     db = get_db()
-    pending = db.execute("SELECT COUNT(*) FROM jobs WHERE status='pending'").fetchone()[0]
-    running = db.execute("SELECT COUNT(*) FROM jobs WHERE status='running'").fetchone()[0]
-    return jsonify({'pending': pending, 'running': running})
+    def n(sql): return db.execute(sql).fetchone()[0]
+    nk = {st: n(f"SELECT COUNT(*) FROM job_batches WHERE status='{st}'") for st in ('pending', 'running', 'on-hold')}
+    sk = {st: n(f"SELECT COUNT(*) FROM skilte_jobs WHERE status='{st}'") for st in ('pending', 'running')}
+    return jsonify({
+        'noegler_pending': nk['pending'], 'noegler_running': nk['running'], 'noegler_hold': nk['on-hold'],
+        'skilte_pending': sk['pending'], 'skilte_running': sk['running'],
+        'pending': nk['pending'] + sk['pending'], 'running': nk['running'] + sk['running'],
+    })
 
 # Fonts
 @app.route('/api/fonts')
@@ -738,6 +852,22 @@ def get_status():
 def get_fonts():
     from workers.font_manager import FONTS
     return jsonify(FONTS)
+
+@app.route('/api/fonts/prove')
+@require_auth
+def fonts_prove():
+    """Prøvetekst i ALLE skrifttyper (de faktiske gravér-streger) til galleriet.
+    Koordinater i mm ved 10 mm teksthøjde; SVG-orienteret (baseline y=0, op = negativ)."""
+    from workers.font_manager import FONTS, get_strokes
+    tekst = (request.args.get('tekst') or 'Aa Bb Æøå 123').strip()[:24] or 'Aa'
+    out = {}
+    for key, navn in FONTS.items():
+        strokes, w = get_strokes(tekst, 10.0, key)
+        out[key] = {'navn': navn, 'bredde': round(w, 2),
+                    'paths': [[[round(x, 2), round(-y, 2)] for x, y in st] for st in strokes if st]}
+    resp = jsonify(out)
+    resp.headers['Cache-Control'] = 'private, max-age=600'
+    return resp
 
 # ─── Backup: eksport/import af templates ───────────────────────────────────
 # Kolonner der er PORTABLE på tværs af maskiner (dvs. ikke id/maskine_id/aktiv/

@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS job_batches (
     loebe_prefix   TEXT NOT NULL DEFAULT '',
     loebe_suffix   TEXT NOT NULL DEFAULT '',
     status      TEXT NOT NULL DEFAULT 'pending',
+    fejl_besked TEXT,
     oprettet    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     startet     TIMESTAMP,
     faerdig     TIMESTAMP
