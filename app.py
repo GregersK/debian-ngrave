@@ -2,9 +2,12 @@
 nGrave - Flask Server
 """
 import json, sqlite3, threading, time, os, signal, logging, secrets
+from contextlib import closing
 from datetime import datetime
 from functools import wraps
 from flask import Flask, request, jsonify, render_template, g, Response
+from workers import forbindelse
+from workers.forbindelse import ForbindelsesFejl
 
 app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
@@ -12,6 +15,7 @@ app.logger.setLevel(logging.INFO)
 DB = os.environ.get('NGRAVE_DB', os.path.join(os.path.dirname(__file__), 'ngrave.db'))
 PORT = int(os.environ.get('NGRAVE_PORT', '80'))
 FALLBACK_PORT = 8080  # bruges kun hvis PORT ikke kan bindes (fx non-root uden CAP_NET_BIND_SERVICE)
+MAX_EMNER_PR_ORDRE = 5000   # sikkerhedsgrænse mod tastefejl (fx 100000 i stedet for 100)
 HOST = os.environ.get('NGRAVE_HOST', '0.0.0.0')
 AUTH_USER = os.environ.get('NGRAVE_AUTH_USER') or ''
 AUTH_PASS = os.environ.get('NGRAVE_AUTH_PASS') or ''
@@ -154,6 +158,8 @@ def migrate_db():
         ("templates",   "ekstra_position",                "INTEGER NOT NULL DEFAULT 4"),
         ("job_batches", "loebe_prefix",                   "TEXT NOT NULL DEFAULT ''"),
         ("job_batches", "loebe_suffix",                   "TEXT NOT NULL DEFAULT ''"),
+        ("job_batches", "fejl_besked",                    "TEXT"),
+        ("job_batches", "fejl_kode",                      "TEXT"),
         ("job_batches", "ekstra_tekst",       "TEXT NOT NULL DEFAULT ''"),
         ("jobs",        "ekstra_tekst",       "TEXT NOT NULL DEFAULT ''"),
         ("skilt_templates","margin_top_mm",   "REAL"),
@@ -168,6 +174,7 @@ def migrate_db():
         ("skilte_jobs", "margin_bottom_mm",   "REAL"),
         ("skilte_jobs", "linje_afstand_mm",   "REAL"),
         ("skilte_jobs", "fejl_besked",        "TEXT"),
+        ("skilte_jobs", "fejl_kode",          "TEXT"),
     ]
     with sqlite3.connect(DB) as db:
         for table, col, typedef in migrations:
@@ -189,112 +196,241 @@ def cleanup_running_on_startup():
                 db.execute(f"UPDATE {tbl} SET status='fejl' WHERE status='running'")
         db.commit()
 
-# ─── Job Queue Worker ─────────────────────────────────────────────────────────
+def _kort_fejl(e):
+    """Menneskelig fejlbesked til jobkøen (i stedet for rå Python-fejl)."""
+    if isinstance(e, (ValueError, ForbindelsesFejl)):
+        return str(e)[:300]
+    if isinstance(e, TimeoutError):
+        return "Maskinen holdt op med at svare midt i sendingen (timeout) — tjek maskinen før jobbet gentages."
+    if isinstance(e, ConnectionError):
+        return "Forbindelsen til maskinen blev afbrudt under sendingen — tjek maskinen før jobbet gentages."
+    if isinstance(e, OSError):
+        return f"Netværksfejl mod maskinen: {e.strerror or e}"[:300]
+    return f"Uventet fejl ({type(e).__name__}) — se server-log"
+
+def _fejl_kode(e):
+    """'forbindelse' = intet blev sendt (sikkert at prøve igen). Alt andet må
+    ikke gentages automatisk — maskinen kan allerede have modtaget programmet."""
+    if isinstance(e, ForbindelsesFejl):
+        return 'forbindelse'
+    return 'data' if isinstance(e, ValueError) else 'sending'
+
+# ─── Job Queue: én arbejdstråd pr. maskine ────────────────────────────────────
+# En maskine behandles serielt (den kan kun tage ét program ad gangen), men
+# maskiner er uafhængige: en slukket maskine med 30 jobs bremser ikke de andre.
 stop_event = threading.Event()
 
+def _env_tal(navn, standard):
+    try:
+        return float(os.environ.get(navn, standard))
+    except ValueError:
+        return float(standard)
+
+SEND_FORSOEG = max(1, int(_env_tal('NGRAVE_SEND_FORSOEG', 3)))   # forsøg ved forbindelsesfejl
+SEND_PAUSE = (5.0, 20.0)       # sekunder før forsøg 2 og 3
+NEDE_VINDUE = 30.0             # efter opgivet forbindelse fejler nye jobs straks i så mange sekunder
+PROBE_INTERVAL = _env_tal('NGRAVE_PROBE_INTERVAL', 30)           # 0 = slå baggrunds-tjek fra
+PROBE_EFTER_SEND = _env_tal('NGRAVE_PROBE_EFTER_SEND', 900)      # sek: rør ikke maskinen så længe efter en sending (den graverer formentlig stadig)
+
+_maskine_traade = {}
+_maskine_traade_laas = threading.Lock()
+_nede_til = {}                 # maskine_id -> (til_tidspunkt, ForbindelsesFejl)
+
+def _db():
+    db = sqlite3.connect(DB, timeout=5)
+    db.row_factory = sqlite3.Row
+    db.execute("PRAGMA busy_timeout=5000")
+    return db
+
 def queue_worker():
+    """Dispatcher: sørger for at hver maskine med ventende jobs har sin egen tråd."""
     while not stop_event.is_set():
         try:
-            with sqlite3.connect(DB, timeout=5) as db:
-                db.row_factory = sqlite3.Row
-                db.execute("PRAGMA busy_timeout=5000")
-
-                # Find næste pending BATCH — sender alle jobs samlet
-                batch = db.execute("""
-                    SELECT b.*, m.ip, m.port, m.protokol,
-                           m.offset_x, m.offset_y, m.offset_z,
-                           t.*
-                    FROM job_batches b
-                    JOIN maskiner m  ON b.maskine_id = m.id
-                    JOIN templates t ON b.template_id = t.id
-                    WHERE b.status = 'pending'
-                    ORDER BY b.id ASC LIMIT 1
-                """).fetchone()
-
-                if batch:
-                    batch_id = batch['id']
-                    db.execute("UPDATE job_batches SET status='running', startet=? WHERE id=?",
-                               (datetime.now(), batch_id))
-                    db.commit()
-
-                    jobs = db.execute(
-                        "SELECT * FROM jobs WHERE batch_id=? ORDER BY slot_nr ASC",
-                        (batch_id,)
-                    ).fetchall()
-
-                    tmpl = dict(db.execute(
-                        "SELECT * FROM templates WHERE id=?", (batch['template_id'],)
-                    ).fetchone())
-                    maskine = dict(db.execute(
-                        "SELECT * FROM maskiner WHERE id=?", (batch['maskine_id'],)
-                    ).fetchone())
-
-                    tmpl['offset_x'] = maskine.get('offset_x', 0.0) or 0.0
-                    tmpl['offset_y'] = maskine.get('offset_y', 0.0) or 0.0
-                    tmpl['offset_z'] = maskine.get('offset_z', 0.0) or 0.0
-                    tmpl['spejl_y']  = bool(maskine.get('spejl_y', 0))
-                    for felt in ('markering', 'system', 'loebe', 'ekstra'):
-                        tmpl[f'felt_{felt}_dx'] = float(maskine.get(f'felt_{felt}_dx') or 0.0)
-                        tmpl[f'felt_{felt}_dy'] = float(maskine.get(f'felt_{felt}_dy') or 0.0)
-
-                    try:
-                        if maskine['protokol'] == 'gcode':
-                            from workers.gcode_worker import byg_batch, send as send_gcode
-                            gcode = byg_batch([dict(j) for j in jobs], tmpl)
-                            send_gcode(gcode, maskine['ip'], maskine['port'])
-                        else:
-                            from workers.cipher_worker import byg_batch as byg_cipher_batch, send as send_cipher
-                            cipher = byg_cipher_batch([dict(j) for j in jobs], tmpl)
-                            send_cipher(cipher, maskine['ip'], maskine['port'])
-
-                        db.execute("UPDATE jobs SET status='done', udfoert=? WHERE batch_id=?",
-                                   (datetime.now(), batch_id))
-                        db.execute("UPDATE job_batches SET status='done', faerdig=? WHERE id=?",
-                                   (datetime.now(), batch_id))
-                    except Exception as e:
-                        db.execute("UPDATE job_batches SET status='fejl' WHERE id=?", (batch_id,))
-                        app.logger.exception("Batch %s fejl: %s", batch_id, e)
-                    db.commit()
-                    continue
-
-                # Næste pending skilt. LEFT JOIN skilt_templates så feed/rpm/z_op
-                # fra template'en sendes med til worker'en (skilte_jobs har ikke
-                # selv disse kolonner). Fri-form skilte uden template -> NULL ->
-                # worker falder tilbage til standardkonstanter.
-                skilt = db.execute("""
-                    SELECT s.*, m.ip, m.port, m.protokol,
-                           st.feed_xy, st.feed_z, st.spindle_rpm, st.z_op_mm, st.prox_offset_mm
-                    FROM skilte_jobs s
-                    JOIN maskiner m ON s.maskine_id = m.id
-                    LEFT JOIN skilt_templates st ON s.template_id = st.id
-                    WHERE s.status = 'pending'
-                    ORDER BY s.id ASC LIMIT 1
-                """).fetchone()
-
-                if skilt:
-                    skilt_id = skilt['id']
-                    db.execute("UPDATE skilte_jobs SET status='running' WHERE id=?", (skilt_id,))
-                    db.commit()
-                    try:
-                        from workers.skilt_worker import byg_skilt
-                        from workers.gcode_worker import send as send_gcode
-                        gcode = byg_skilt(dict(skilt))
-                        send_gcode(gcode, skilt['ip'], skilt['port'])
-                        db.execute("UPDATE skilte_jobs SET status='done', faerdig=? WHERE id=?",
-                                   (datetime.now(), skilt_id))
-                    except Exception as e:
-                        db.execute("UPDATE skilte_jobs SET status='fejl', fejl_besked=? WHERE id=?",
-                                   (str(e)[:200], skilt_id))
-                        app.logger.exception("Skilt %s fejl: %s", skilt_id, e)
-                    db.commit()
-                    continue
-
-                # Vent op til 1 sekund eller indtil stop_event sættes
-                stop_event.wait(timeout=1)
-
+            with closing(_db()) as db:
+                mids = [r[0] for r in db.execute(
+                    "SELECT maskine_id FROM job_batches WHERE status='pending' "
+                    "UNION SELECT maskine_id FROM skilte_jobs WHERE status='pending'")]
+            for mid in mids:
+                _start_maskine_traad(mid)
         except Exception as e:
             app.logger.exception("Queue worker fejl: %s", e)
             stop_event.wait(timeout=2)
+        stop_event.wait(timeout=1)
+
+def _start_maskine_traad(mid):
+    with _maskine_traade_laas:
+        t = _maskine_traade.get(mid)
+        if t and t.is_alive():
+            return
+        t = threading.Thread(target=_maskine_arbejder, args=(mid,), name=f'maskine-{mid}', daemon=True)
+        _maskine_traade[mid] = t
+        t.start()
+
+def _maskine_arbejder(mid):
+    """Kører maskinens ventende jobs ét ad gangen (nøgle-batches før skilte)."""
+    try:
+        while not stop_event.is_set():
+            with closing(_db()) as db:
+                if not (_koer_naeste_batch(db, mid) or _koer_naeste_skilt(db, mid)):
+                    return
+    except Exception as e:
+        app.logger.exception("Maskine-tråd %s fejlede: %s", mid, e)
+
+def _send_med_retry(mid, send_fn, payload, ip, port, saet_note):
+    """Sender et program. Kun forbindelsesfejl (intet sendt) prøves igen — med
+    pause, så en maskine der lige genstarter får en chance."""
+    nede = _nede_til.get(mid)
+    if nede and time.time() < nede[0]:
+        raise ForbindelsesFejl(nede[1].aarsag, nede[1].besked)   # fail-fast: maskinen er lige blevet opgivet
+    for forsoeg in range(1, SEND_FORSOEG + 1):
+        with forbindelse.send_laas(mid):
+            try:
+                send_fn(payload, ip, port)
+            except ForbindelsesFejl as e:
+                forbindelse.noter(mid, 'afviser' if e.aarsag == 'afvist' else 'offline', 'job', fejl=e.besked)
+                if forsoeg >= SEND_FORSOEG:
+                    _nede_til[mid] = (time.time() + NEDE_VINDUE, e)
+                    raise
+                pause = SEND_PAUSE[min(forsoeg - 1, len(SEND_PAUSE) - 1)]
+                fejl = e
+            except Exception:
+                # Forbindelsen lykkedes, men sendingen fejlede undervejs → data kan være modtaget.
+                forbindelse.noter(mid, 'online', 'job', sendt=True)
+                raise
+            else:
+                forbindelse.noter(mid, 'online', 'job', sendt=True)
+                _nede_til.pop(mid, None)
+                return
+        saet_note(f"Ingen forbindelse til maskinen — prøver igen om {pause:g} s (forsøg {forsoeg + 1} af {SEND_FORSOEG})")
+        if stop_event.wait(pause):
+            raise ValueError("Afbrudt ved nedlukning")
+
+def _koer_naeste_batch(db, mid):
+    """Sender maskinens ældste ventende nøgle-batch. Returnerer True hvis der var en."""
+    row = db.execute("SELECT id FROM job_batches WHERE status='pending' AND maskine_id=? "
+                     "ORDER BY id ASC LIMIT 1", (mid,)).fetchone()
+    if not row:
+        return False
+    batch_id = row['id']
+    cur = db.execute("UPDATE job_batches SET status='running', startet=?, fejl_besked=NULL, fejl_kode=NULL "
+                     "WHERE id=? AND status='pending'", (datetime.now(), batch_id))
+    db.commit()
+    if cur.rowcount != 1:
+        return True      # en anden tråd/annullering nåede den først
+    def note(tekst):
+        db.execute("UPDATE job_batches SET fejl_besked=? WHERE id=?", (tekst, batch_id))
+        db.commit()
+    try:
+        batch = db.execute("SELECT * FROM job_batches WHERE id=?", (batch_id,)).fetchone()
+        tmpl_row = db.execute("SELECT * FROM templates WHERE id=?", (batch['template_id'],)).fetchone()
+        mask_row = db.execute("SELECT * FROM maskiner WHERE id=?", (mid,)).fetchone()
+        if not tmpl_row:
+            raise ValueError("Templaten til dette job findes ikke længere")
+        if not mask_row:
+            raise ValueError("Maskinen til dette job findes ikke længere")
+        tmpl, maskine = dict(tmpl_row), dict(mask_row)
+        jobs = [dict(j) for j in db.execute("SELECT * FROM jobs WHERE batch_id=? ORDER BY slot_nr ASC", (batch_id,))]
+
+        tmpl['offset_x'] = maskine.get('offset_x', 0.0) or 0.0
+        tmpl['offset_y'] = maskine.get('offset_y', 0.0) or 0.0
+        tmpl['offset_z'] = maskine.get('offset_z', 0.0) or 0.0
+        tmpl['spejl_y']  = bool(maskine.get('spejl_y', 0))
+        for felt in ('markering', 'system', 'loebe', 'ekstra'):
+            tmpl[f'felt_{felt}_dx'] = float(maskine.get(f'felt_{felt}_dx') or 0.0)
+            tmpl[f'felt_{felt}_dy'] = float(maskine.get(f'felt_{felt}_dy') or 0.0)
+
+        if maskine['protokol'] == 'gcode':
+            from workers.gcode_worker import byg_batch, send
+        else:
+            from workers.cipher_worker import byg_batch, send
+        program = byg_batch(jobs, tmpl)
+        _send_med_retry(mid, send, program, maskine['ip'], maskine['port'], note)
+
+        db.execute("UPDATE jobs SET status='done', udfoert=? WHERE batch_id=?", (datetime.now(), batch_id))
+        db.execute("UPDATE job_batches SET status='done', faerdig=?, fejl_besked=NULL WHERE id=?",
+                   (datetime.now(), batch_id))
+    except Exception as e:
+        db.execute("UPDATE job_batches SET status='fejl', fejl_besked=?, fejl_kode=? WHERE id=?",
+                   (_kort_fejl(e), _fejl_kode(e), batch_id))
+        if isinstance(e, (ForbindelsesFejl, ValueError)):
+            app.logger.warning("Batch %s: %s", batch_id, e)       # forventet fejl — ingen stack trace
+        else:
+            app.logger.exception("Batch %s fejl: %s", batch_id, e)
+    db.commit()
+    return True
+
+def _koer_naeste_skilt(db, mid):
+    """Sender maskinens ældste ventende skilt. Returnerer True hvis der var et."""
+    # LEFT JOIN skilt_templates så feed/rpm/z_op fra template'en sendes med til
+    # worker'en. Fri-form skilte uden template -> NULL -> standardkonstanter.
+    skilt = db.execute("""
+        SELECT s.*, m.ip, m.port, m.protokol,
+               st.feed_xy, st.feed_z, st.spindle_rpm, st.z_op_mm, st.prox_offset_mm
+        FROM skilte_jobs s
+        JOIN maskiner m ON s.maskine_id = m.id
+        LEFT JOIN skilt_templates st ON s.template_id = st.id
+        WHERE s.status = 'pending' AND s.maskine_id = ?
+        ORDER BY s.id ASC LIMIT 1
+    """, (mid,)).fetchone()
+    if not skilt:
+        return False
+    skilt_id = skilt['id']
+    cur = db.execute("UPDATE skilte_jobs SET status='running', startet=?, fejl_besked=NULL, fejl_kode=NULL "
+                     "WHERE id=? AND status='pending'", (datetime.now(), skilt_id))
+    db.commit()
+    if cur.rowcount != 1:
+        return True
+    def note(tekst):
+        db.execute("UPDATE skilte_jobs SET fejl_besked=? WHERE id=?", (tekst, skilt_id))
+        db.commit()
+    try:
+        if skilt['protokol'] != 'gcode':
+            raise ValueError("Skilte kan kun graveres på maskiner med G-code (S5) — ikke CIPHER (S3)")
+        from workers.skilt_worker import byg_skilt
+        from workers.gcode_worker import send
+        gcode = byg_skilt(dict(skilt))
+        _send_med_retry(mid, send, gcode, skilt['ip'], skilt['port'], note)
+        db.execute("UPDATE skilte_jobs SET status='done', faerdig=?, fejl_besked=NULL WHERE id=?",
+                   (datetime.now(), skilt_id))
+    except Exception as e:
+        db.execute("UPDATE skilte_jobs SET status='fejl', fejl_besked=?, fejl_kode=? WHERE id=?",
+                   (_kort_fejl(e), _fejl_kode(e), skilt_id))
+        if isinstance(e, (ForbindelsesFejl, ValueError)):
+            app.logger.warning("Skilt %s: %s", skilt_id, e)       # forventet fejl — ingen stack trace
+        else:
+            app.logger.exception("Skilt %s fejl: %s", skilt_id, e)
+    db.commit()
+    return True
+
+# ─── Online-kontrol ───────────────────────────────────────────────────────────
+def _probe_alle(rolig_sek):
+    with closing(_db()) as db:
+        maskiner = db.execute("SELECT id, ip, port FROM maskiner WHERE aktiv=1").fetchall()
+    aktive = {m['id'] for m in maskiner}
+    for mid in forbindelse.kendte_ids():
+        if mid not in aktive:
+            forbindelse.glem(mid)
+    for m in maskiner:
+        if stop_event.is_set():
+            return
+        r = forbindelse.probe_maskine(m['id'], m['ip'], m['port'], kun_hvis_rolig_sek=rolig_sek)
+        if r and r['status'] == 'online':
+            _nede_til.pop(m['id'], None)
+
+def probe_loop():
+    """Tjekker jævnligt om maskinerne svarer (kun connect+luk — der sendes aldrig data,
+    og en maskine der lige har fået et program lades i fred). Slås fra med
+    NGRAVE_PROBE_INTERVAL=0."""
+    if PROBE_INTERVAL <= 0:
+        app.logger.info("Baggrunds-tjek af maskiner er slået fra (NGRAVE_PROBE_INTERVAL=0)")
+        return
+    stop_event.wait(2)
+    while not stop_event.is_set():
+        try:
+            _probe_alle(PROBE_EFTER_SEND)
+        except Exception as e:
+            app.logger.exception("Probe-loop fejl: %s", e)
+        stop_event.wait(PROBE_INTERVAL)
 
 # ─── API Routes ───────────────────────────────────────────────────────────────────
 
@@ -344,6 +480,48 @@ def delete_maskine(id):
     db.execute("UPDATE maskiner SET aktiv=0 WHERE id=?", (id,))
     db.commit()
     return jsonify({'ok': True})
+
+def _maskine_status_liste(db):
+    """Aktive maskiner med online-status og kø-tal (uden at røre ved maskinerne)."""
+    nu = time.time()
+    koe = {}
+    for tabel in ('job_batches', 'skilte_jobs'):
+        for r in db.execute(f"SELECT maskine_id, status, COUNT(*) n FROM {tabel} "
+                            "WHERE status IN ('pending','running') GROUP BY maskine_id, status"):
+            koe.setdefault(r['maskine_id'], {'pending': 0, 'running': 0})[r['status']] += r['n']
+    ud = []
+    for m in db.execute("SELECT id, navn, model, ip, port FROM maskiner WHERE aktiv=1 ORDER BY id"):
+        s = forbindelse.hent(m['id'])
+        ud.append({
+            'id': m['id'], 'navn': m['navn'], 'ip': m['ip'], 'port': m['port'],
+            'status': s['status'], 'kilde': s['kilde'], 'fejl': s['fejl'], 'ms': s['ms'],
+            'tjekket_sek_siden': None if s['sidst_tjekket'] is None else int(nu - s['sidst_tjekket']),
+            'set_online_sek_siden': None if s['sidst_set'] is None else int(nu - s['sidst_set']),
+            'sendt_sek_siden': None if s['sidst_sendt'] is None else int(nu - s['sidst_sendt']),
+            'graverer_formentlig': forbindelse.sendt_for_nylig(m['id'], PROBE_EFTER_SEND) is not None,
+            'koe': koe.get(m['id'], {'pending': 0, 'running': 0}),
+        })
+    return ud
+
+@app.route('/api/maskiner/status')
+@require_auth
+def maskiner_status():
+    return jsonify(_maskine_status_liste(get_db()))
+
+@app.route('/api/maskiner/<int:id>/ping', methods=['POST'])
+@require_auth
+def ping_maskine(id):
+    """Manuelt tjek: opretter og lukker en forbindelse (sender aldrig data)."""
+    m = get_db().execute("SELECT id, ip, port FROM maskiner WHERE id=?", (id,)).fetchone()
+    if not m:
+        return jsonify({'ok': False, 'fejl': 'Maskine ikke fundet'}), 404
+    r = forbindelse.probe_maskine(m['id'], m['ip'], m['port'])
+    if r is None:
+        return jsonify({'ok': True, 'status': 'optaget',
+                        'besked': 'Maskinen modtager et program lige nu — prøv igen om lidt.'})
+    if r['status'] == 'online':
+        _nede_til.pop(m['id'], None)
+    return jsonify({'ok': True, **r})
 
 @app.route('/api/maskiner/<int:id>/kalibrering', methods=['PUT'])
 @require_auth
@@ -470,21 +648,37 @@ def get_skilt_templates():
     rows = get_db().execute("SELECT * FROM skilt_templates WHERE aktiv=1")
     return jsonify([dict(r) for r in rows])
 
+def _nul(v, typ=float):
+    """Tom streng/None -> None, ellers typet tal (til valgfrie felter)."""
+    if v is None or v == '':
+        return None
+    return typ(v)
+
+def _skilt_template_vaerdier(d):
+    return (d['navn'], d.get('beskrivelse', ''),
+            d['skilt_bredde_mm'], d['skilt_hoejde_mm'], d['antal_linjer'],
+            json.dumps(d['linjer_config']),
+            _nul(d.get('margin_top_mm')), _nul(d.get('margin_bottom_mm')),
+            _nul(d.get('linje_afstand_mm')),
+            _nul(d.get('feed_xy'), int), _nul(d.get('feed_z'), int),
+            _nul(d.get('spindle_rpm'), int), _nul(d.get('z_op_mm')),
+            _nul(d.get('prox_offset_mm')), _nul(d.get('maskine_id'), int))
+
 @app.route('/api/skilt-templates', methods=['POST'])
 @require_auth
 def create_skilt_template():
     d = request.json or {}
     db = get_db()
-    cur = db.execute("""
-        INSERT INTO skilt_templates (
-            navn, beskrivelse, skilt_bredde_mm, skilt_hoejde_mm, antal_linjer,
-            linjer_config, margin_top_mm, margin_bottom_mm, linje_afstand_mm, maskine_id
-        ) VALUES (?,?,?,?,?,?,?,?,?,?)
-    """, (d['navn'], d.get('beskrivelse',''),
-          d['skilt_bredde_mm'], d['skilt_hoejde_mm'], d['antal_linjer'],
-          json.dumps(d['linjer_config']),
-          d.get('margin_top_mm'), d.get('margin_bottom_mm'), d.get('linje_afstand_mm'),
-          d.get('maskine_id')))
+    try:
+        cur = db.execute("""
+            INSERT INTO skilt_templates (
+                navn, beskrivelse, skilt_bredde_mm, skilt_hoejde_mm, antal_linjer,
+                linjer_config, margin_top_mm, margin_bottom_mm, linje_afstand_mm,
+                feed_xy, feed_z, spindle_rpm, z_op_mm, prox_offset_mm, maskine_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, _skilt_template_vaerdier(d))
+    except (KeyError, ValueError, TypeError):
+        return jsonify({'ok': False, 'fejl': 'Ugyldige eller manglende felter'}), 400
     db.commit()
     return jsonify({'ok': True, 'id': cur.lastrowid})
 
@@ -493,16 +687,19 @@ def create_skilt_template():
 def update_skilt_template(id):
     d = request.json or {}
     db = get_db()
+    try:
+        vals = _skilt_template_vaerdier(d)
+    except (KeyError, ValueError, TypeError):
+        return jsonify({'ok': False, 'fejl': 'Ugyldige eller manglende felter'}), 400
     db.execute("""
         UPDATE skilt_templates SET
             navn=?, beskrivelse=?, skilt_bredde_mm=?, skilt_hoejde_mm=?,
             antal_linjer=?, linjer_config=?,
-            margin_top_mm=?, margin_bottom_mm=?, linje_afstand_mm=?
+            margin_top_mm=?, margin_bottom_mm=?, linje_afstand_mm=?,
+            feed_xy=?, feed_z=?, spindle_rpm=?, z_op_mm=?, prox_offset_mm=?,
+            maskine_id=?
         WHERE id=?
-    """, (d['navn'], d.get('beskrivelse',''),
-          d['skilt_bredde_mm'], d['skilt_hoejde_mm'], d['antal_linjer'],
-          json.dumps(d['linjer_config']),
-          d.get('margin_top_mm'), d.get('margin_bottom_mm'), d.get('linje_afstand_mm'), id))
+    """, vals + (id,))
     db.commit()
     return jsonify({'ok': True})
 
@@ -518,11 +715,23 @@ def delete_skilt_template(id):
 @app.route('/api/maskiner/<int:id>/test', methods=['POST'])
 @require_auth
 def test_maskine(id):
+    d = request.get_json(silent=True) or {}
     db = get_db()
     maskine = db.execute("SELECT * FROM maskiner WHERE id=?", (id,)).fetchone()
     if not maskine:
         return jsonify({'ok': False, 'fejl': 'Maskine ikke fundet'}), 404
 
+    # Test-positionen flytter maskinen. Er der lige sendt et program, graverer den
+    # formentlig stadig — kræv en eksplicit bekræftelse før vi blander os.
+    siden = forbindelse.sendt_for_nylig(id, PROBE_EFTER_SEND)
+    if siden is not None and not d.get('tving'):
+        return jsonify({'ok': False, 'kraever_bekraeftelse': True,
+                        'fejl': f"Der blev sendt et program til maskinen for {max(1, siden // 60)} min siden — "
+                                "den graverer måske stadig. Kør alligevel til 0,0?"}), 409
+
+    laas = forbindelse.send_laas(id)
+    if not laas.acquire(timeout=3):
+        return jsonify({'ok': False, 'fejl': 'Maskinen modtager et program lige nu — prøv igen om lidt'}), 409
     try:
         if maskine['protokol'] == 'cipher':
             # CIPHER: kør til 0,0 (offsets håndteres ikke her — S3 forventer steps,
@@ -544,10 +753,16 @@ def test_maskine(id):
             ]) + "\n"
             from workers.gcode_worker import send as send_gcode
             send_gcode(gcode, maskine['ip'], maskine['port'])
+        forbindelse.noter(id, 'online', 'job')     # ikke sendt=True: test-positionen graverer ikke
         return jsonify({'ok': True})
-    except Exception as e:
+    except ForbindelsesFejl as e:
+        forbindelse.noter(id, 'afviser' if e.aarsag == 'afvist' else 'offline', 'job', fejl=e.besked)
+        return jsonify({'ok': False, 'fejl': e.besked}), 502
+    except Exception:
         app.logger.exception("test_maskine fejl")
         return jsonify({'ok': False, 'fejl': 'Kunne ikke kontakte maskinen'}), 502
+    finally:
+        laas.release()
 
 # Batches (nøgle-jobs)
 @app.route('/api/batches')
@@ -568,7 +783,15 @@ def create_batch():
     d = request.json or {}
     db = get_db()
 
-    tmpl = db.execute("SELECT * FROM templates WHERE id=?", (d['template_id'],)).fetchone()
+    try:
+        template_id = int(d['template_id'])
+        maskine_id = int(d['maskine_id'])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({'ok': False, 'fejl': 'Vælg template og maskine'}), 400
+    if not db.execute("SELECT 1 FROM maskiner WHERE id=? AND aktiv=1", (maskine_id,)).fetchone():
+        return jsonify({'ok': False, 'fejl': 'Maskinen findes ikke'}), 400
+
+    tmpl = db.execute("SELECT * FROM templates WHERE id=?", (template_id,)).fetchone()
     if not tmpl:
         return jsonify({'ok': False, 'fejl': 'Template findes ikke'}), 404
 
@@ -585,15 +808,20 @@ def create_batch():
     loebe_suffix = d.get('loebe_suffix', '').strip() if tmpl['loebe_suffix_aktiv'] else ''
     loebe_min    = int(tmpl['loebe_min_laengde'] or 0)
 
-    if loebe_aktiv:
-        fra = int(d.get('loebe_fra', 1))
-        til = int(d.get('loebe_til', 1))
-    else:
-        fra = 1
-        til = int(d.get('antal', 1))
+    try:
+        if loebe_aktiv:
+            fra = int(d.get('loebe_fra', 1))
+            til = int(d.get('loebe_til', 1))
+        else:
+            fra = 1
+            til = int(d.get('antal', 1))
+        start_slot = max(1, int(d.get('start_slot', 1))) - 1
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'fejl': 'Løbenummer, antal og start-slot skal være hele tal'}), 400
 
     antal = til - fra + 1
-    start_slot = max(1, int(d.get('start_slot', 1))) - 1
+    if antal > MAX_EMNER_PR_ORDRE:
+        return jsonify({'ok': False, 'fejl': f'For mange emner ({antal}) — max {MAX_EMNER_PR_ORDRE} pr. ordre. Tastefejl?'}), 400
     plade_size = len(slots)
 
     if antal <= 0:
@@ -619,7 +847,7 @@ def create_batch():
         cur = db.execute("""
             INSERT INTO job_batches (navn, template_id, maskine_id, system_nr, type_felt, ekstra_tekst, loebe_fra, loebe_til, loebe_prefix, loebe_suffix, status)
             VALUES (?,?,?,?,?,?,?,?,?,?,?)
-        """, (navn, d['template_id'], d['maskine_id'], system_nr, type_felt, ekstra_tekst, loebe_cursor, batch_end, loebe_prefix, loebe_suffix, status))
+        """, (navn, template_id, maskine_id, system_nr, type_felt, ekstra_tekst, loebe_cursor, batch_end, loebe_prefix, loebe_suffix, status))
         batch_id = cur.lastrowid
 
         for i, slot in enumerate(slots_i_batch):
@@ -699,21 +927,120 @@ def get_skilte():
     """)
     return jsonify([dict(r) for r in rows])
 
+def _skilt_spec(d):
+    """Bygger layout-input fra en request. Tomme linjer udelades (både i
+    forhåndsvisning og gravering, så de to altid er ens)."""
+    linjer = [l for l in (d.get('linjer') or [])
+              if isinstance(l, dict) and str(l.get('tekst', '')).strip()]
+    return {
+        'skilt_bredde_mm': float(d['skilt_bredde_mm']),
+        'skilt_hoejde_mm': float(d['skilt_hoejde_mm']),
+        'linjer_json': linjer,
+        'margin_top_mm': d.get('margin_top_mm'),
+        'margin_bottom_mm': d.get('margin_bottom_mm'),
+        'linje_afstand_mm': d.get('linje_afstand_mm'),
+    }
+
+@app.route('/api/skilt/preview', methods=['POST'])
+@require_auth
+def preview_skilt():
+    """Præcis det layout der graveres (samme motor), inkl. fejl/advarsler."""
+    from workers.skilt_worker import layout_skilt
+    try:
+        lay = layout_skilt(_skilt_spec(request.json or {}))
+    except (KeyError, ValueError, TypeError):
+        return jsonify({'ok': False, 'fejl': ['Ugyldig størrelse'], 'advarsler': [], 'linjer': []}), 400
+    for l in lay['linjer']:
+        l.pop('strokes', None)
+    return jsonify(lay)
+
 @app.route('/api/skilte', methods=['POST'])
 @require_auth
 def create_skilt():
+    from workers.skilt_worker import layout_skilt
     d = request.json or {}
     db = get_db()
+    try:
+        spec = _skilt_spec(d)
+        maskine_id = int(d['maskine_id'])
+    except (KeyError, ValueError, TypeError):
+        return jsonify({'ok': False, 'fejl': 'Vælg maskine og angiv skiltets størrelse'}), 400
+    if not spec['linjer_json']:
+        return jsonify({'ok': False, 'fejl': 'Skriv tekst på mindst én linje'}), 400
+    maskine = db.execute("SELECT protokol FROM maskiner WHERE id=? AND aktiv=1", (maskine_id,)).fetchone()
+    if not maskine:
+        return jsonify({'ok': False, 'fejl': 'Maskinen findes ikke'}), 400
+    if maskine['protokol'] != 'gcode':
+        return jsonify({'ok': False, 'fejl': 'Skilte kan kun graveres på G-code-maskiner (S5), ikke CIPHER (S3)'}), 400
+    # Afvis med det samme (ikke først i køen) hvis teksten ikke passer på skiltet.
+    lay = layout_skilt(spec)
+    if not lay['ok']:
+        return jsonify({'ok': False, 'fejl': 'Passer ikke på skiltet: ' + '; '.join(lay['fejl'])}), 400
 
-    navn = d.get('navn') or f"Skilt_{d['skilt_bredde_mm']}x{d['skilt_hoejde_mm']}"
-
+    navn = (d.get('navn') or '').strip() or \
+        f"{spec['linjer_json'][0]['tekst'][:30]} ({spec['skilt_bredde_mm']:g}x{spec['skilt_hoejde_mm']:g})"
     cur = db.execute("""
         INSERT INTO skilte_jobs (navn, maskine_id, template_id, skilt_bredde_mm, skilt_hoejde_mm, linjer_json, margin_top_mm, margin_bottom_mm, linje_afstand_mm)
         VALUES (?,?,?,?,?,?,?,?,?)
-    """, (navn, d['maskine_id'], d.get('template_id'), d['skilt_bredde_mm'], d['skilt_hoejde_mm'],
-          json.dumps(d['linjer']), d.get('margin_top_mm'), d.get('margin_bottom_mm'), d.get('linje_afstand_mm')))
+    """, (navn, maskine_id, _nul(d.get('template_id'), int), spec['skilt_bredde_mm'], spec['skilt_hoejde_mm'],
+          json.dumps(spec['linjer_json']), _nul(d.get('margin_top_mm')), _nul(d.get('margin_bottom_mm')),
+          _nul(d.get('linje_afstand_mm'))))
     db.commit()
-    return jsonify({'ok': True, 'id': cur.lastrowid})
+    return jsonify({'ok': True, 'id': cur.lastrowid, 'advarsler': lay['advarsler']})
+
+@app.route('/api/skilte/<int:id>/gentag', methods=['POST'])
+@require_auth
+def gentag_skilt(id):
+    db = get_db()
+    r = db.execute("SELECT maskine_id FROM skilte_jobs WHERE id=? AND status='fejl'", (id,)).fetchone()
+    cur = db.execute("UPDATE skilte_jobs SET status='pending', fejl_besked=NULL, fejl_kode=NULL, startet=NULL, faerdig=NULL "
+                     "WHERE id=? AND status='fejl'", (id,))
+    db.commit()
+    if r:
+        _nede_til.pop(r['maskine_id'], None)   # ny chance — ingen fail-fast fra et tidligere forsøg
+    return jsonify({'ok': cur.rowcount == 1})
+
+@app.route('/api/batches/<int:id>/gentag', methods=['POST'])
+@require_auth
+def gentag_batch(id):
+    db = get_db()
+    r = db.execute("SELECT maskine_id FROM job_batches WHERE id=? AND status='fejl'", (id,)).fetchone()
+    cur = db.execute("UPDATE job_batches SET status='pending', fejl_besked=NULL, fejl_kode=NULL, startet=NULL, faerdig=NULL "
+                     "WHERE id=? AND status='fejl'", (id,))
+    if cur.rowcount == 1:
+        db.execute("UPDATE jobs SET status='pending', fejl_besked=NULL, udfoert=NULL WHERE batch_id=?", (id,))
+    db.commit()
+    if r:
+        _nede_til.pop(r['maskine_id'], None)
+    return jsonify({'ok': cur.rowcount == 1})
+
+@app.route('/api/jobkoe/gentag-fejlede', methods=['POST'])
+@require_auth
+def gentag_fejlede():
+    """Sætter alle jobs der fejlede fordi maskinen ikke kunne nås tilbage i køen.
+    Kun 'forbindelse'-fejl: dér blev intet sendt, så det kan ikke give dobbelt gravering."""
+    d = request.json or {}
+    db = get_db()
+    ekstra, args = '', ()
+    if d.get('maskine_id') not in (None, ''):
+        try:
+            args = (int(d['maskine_id']),)
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'fejl': 'Ugyldig maskine'}), 400
+        ekstra = ' AND maskine_id=?'
+    kriterie = f"status='fejl' AND fejl_kode='forbindelse'{ekstra}"
+    mids = {r[0] for r in db.execute(f"SELECT maskine_id FROM job_batches WHERE {kriterie} "
+                                     f"UNION SELECT maskine_id FROM skilte_jobs WHERE {kriterie}", args + args)}
+    db.execute(f"UPDATE jobs SET status='pending', fejl_besked=NULL, udfoert=NULL WHERE batch_id IN "
+               f"(SELECT id FROM job_batches WHERE {kriterie})", args)
+    b = db.execute(f"UPDATE job_batches SET status='pending', fejl_besked=NULL, fejl_kode=NULL, startet=NULL, faerdig=NULL "
+                   f"WHERE {kriterie}", args).rowcount
+    sk = db.execute(f"UPDATE skilte_jobs SET status='pending', fejl_besked=NULL, fejl_kode=NULL, startet=NULL, faerdig=NULL "
+                    f"WHERE {kriterie}", args).rowcount
+    db.commit()
+    for mid in mids:
+        _nede_til.pop(mid, None)
+    return jsonify({'ok': True, 'noegler': b, 'skilte': sk})
 
 @app.route('/api/skilte/<int:id>/annuller', methods=['POST'])
 @require_auth
@@ -728,9 +1055,18 @@ def annuller_skilt(id):
 @require_auth
 def get_status():
     db = get_db()
-    pending = db.execute("SELECT COUNT(*) FROM jobs WHERE status='pending'").fetchone()[0]
-    running = db.execute("SELECT COUNT(*) FROM jobs WHERE status='running'").fetchone()[0]
-    return jsonify({'pending': pending, 'running': running})
+    def n(sql): return db.execute(sql).fetchone()[0]
+    nk = {st: n(f"SELECT COUNT(*) FROM job_batches WHERE status='{st}'") for st in ('pending', 'running', 'on-hold')}
+    sk = {st: n(f"SELECT COUNT(*) FROM skilte_jobs WHERE status='{st}'") for st in ('pending', 'running')}
+    ms = [(m['id'], forbindelse.hent(m['id'])['status'])
+          for m in db.execute("SELECT id FROM maskiner WHERE aktiv=1")]
+    return jsonify({
+        'noegler_pending': nk['pending'], 'noegler_running': nk['running'], 'noegler_hold': nk['on-hold'],
+        'skilte_pending': sk['pending'], 'skilte_running': sk['running'],
+        'pending': nk['pending'] + sk['pending'], 'running': nk['running'] + sk['running'],
+        'maskiner': {str(i): st for i, st in ms},
+        'maskiner_offline': sum(1 for _, st in ms if st in ('offline', 'afviser')),
+    })
 
 # Fonts
 @app.route('/api/fonts')
@@ -738,6 +1074,22 @@ def get_status():
 def get_fonts():
     from workers.font_manager import FONTS
     return jsonify(FONTS)
+
+@app.route('/api/fonts/prove')
+@require_auth
+def fonts_prove():
+    """Prøvetekst i ALLE skrifttyper (de faktiske gravér-streger) til galleriet.
+    Koordinater i mm ved 10 mm teksthøjde; SVG-orienteret (baseline y=0, op = negativ)."""
+    from workers.font_manager import FONTS, get_strokes
+    tekst = (request.args.get('tekst') or 'Aa Bb Æøå 123').strip()[:24] or 'Aa'
+    out = {}
+    for key, navn in FONTS.items():
+        strokes, w = get_strokes(tekst, 10.0, key)
+        out[key] = {'navn': navn, 'bredde': round(w, 2),
+                    'paths': [[[round(x, 2), round(-y, 2)] for x, y in st] for st in strokes if st]}
+    resp = jsonify(out)
+    resp.headers['Cache-Control'] = 'private, max-age=600'
+    return resp
 
 # ─── Backup: eksport/import af templates ───────────────────────────────────
 # Kolonner der er PORTABLE på tværs af maskiner (dvs. ikke id/maskine_id/aktiv/
@@ -928,8 +1280,8 @@ if __name__ == '__main__':
         )
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
-    t = threading.Thread(target=queue_worker, daemon=True)
-    t.start()
+    threading.Thread(target=queue_worker, name='koe-dispatcher', daemon=True).start()
+    threading.Thread(target=probe_loop, name='maskine-probe', daemon=True).start()
 
     # Standard-port er 80. Kan vi ikke binde den (fx non-root uden
     # CAP_NET_BIND_SERVICE), falder vi tilbage til 8080 i stedet for at crashe.

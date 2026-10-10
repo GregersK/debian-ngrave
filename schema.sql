@@ -121,6 +121,8 @@ CREATE TABLE IF NOT EXISTS job_batches (
     loebe_prefix   TEXT NOT NULL DEFAULT '',
     loebe_suffix   TEXT NOT NULL DEFAULT '',
     status      TEXT NOT NULL DEFAULT 'pending',
+    fejl_besked TEXT,
+    fejl_kode   TEXT,                -- 'forbindelse' = intet sendt (sikkert at gentage)
     oprettet    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     startet     TIMESTAMP,
     faerdig     TIMESTAMP
@@ -155,6 +157,7 @@ CREATE TABLE IF NOT EXISTS skilte_jobs (
     linje_afstand_mm REAL,
     status          TEXT NOT NULL DEFAULT 'pending',
     fejl_besked     TEXT,
+    fejl_kode       TEXT,
     oprettet        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     startet         TIMESTAMP,
     faerdig         TIMESTAMP

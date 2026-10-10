@@ -2,100 +2,26 @@
 <html lang="da">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1b2342">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="nGrave">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%231b2342'/%3E%3Ctext x='50' y='70' font-size='62' text-anchor='middle' fill='%23ff4d6d'%3E%E2%9A%99%3C/text%3E%3C/svg%3E">
 <title>nGrave</title>
-<style>
-:root {
-  --bg-primary: #1a1a2e;
-  --bg-secondary: #16213e;
-  --bg-tertiary: #0f3460;
-  --text-primary: #eee;
-  --text-secondary: #aaa;
-  --border: #0f3460;
-  --accent: #e94560;
-  --hover: #1e2d50;
-}
-
-[data-theme="light"] {
-  --bg-primary: #f5f5f5;
-  --bg-secondary: #ffffff;
-  --bg-tertiary: #e0e0e0;
-  --text-primary: #2c3e50;
-  --text-secondary: #7f8c8d;
-  --border: #d0d0d0;
-  --accent: #e74c3c;
-  --hover: #ecf0f1;
-}
-
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: system-ui, sans-serif; background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; transition: background 0.3s, color 0.3s; }
-header { background: var(--bg-secondary); padding: 16px 24px; display: flex; align-items: center; gap: 16px; border-bottom: 2px solid var(--border); }
-header h1 { font-size: 1.4rem; color: var(--accent); }
-header .status { margin-left: auto; font-size: 0.85rem; color: var(--text-secondary); }
-.theme-toggle { background: var(--bg-tertiary); border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; color: var(--text-primary); font-size: 1.2rem; }
-nav { display: flex; align-items: stretch; background: var(--bg-secondary); border-bottom: 1px solid var(--border); overflow-x: auto; -webkit-overflow-scrolling: touch; }
-nav button { background: none; border: none; color: var(--text-secondary); padding: 12px 18px; cursor: pointer; font-size: 0.95rem; border-bottom: 3px solid transparent; white-space: nowrap; }
-nav button.aktiv { color: var(--accent); border-bottom-color: var(--accent); }
-.nav-sep { flex: 0 0 auto; width: 1px; align-self: center; height: 22px; margin: 0 8px; background: var(--border); }
-main { padding: 24px; max-width: 1400px; margin: 0 auto; }
-.panel { display: none; }
-.panel.aktiv { display: block; }
-.kort { background: var(--bg-secondary); border-radius: 8px; padding: 20px; margin-bottom: 16px; border: 1px solid var(--border); }
-.kort h2 { font-size: 1.1rem; margin-bottom: 16px; color: var(--accent); }
-.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-.form-section { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
-.form-section:last-child { border-bottom: none; margin-bottom: 0; }
-.form-section h3 { font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
-label { display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px; }
-input, select, textarea { width: 100%; padding: 8px 10px; background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-primary); border-radius: 4px; font-size: 0.95rem; font-family: inherit; }
-input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
-textarea { resize: vertical; min-height: 60px; }
-.btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.95rem; font-weight: 600; }
-.btn-primary { background: var(--accent); color: white; }
-.btn-secondary { background: var(--bg-tertiary); color: var(--text-primary); }
-.btn-danger { background: #c0392b; color: white; }
-.btn:hover { opacity: 0.85; }
-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-th { text-align: left; padding: 10px; color: var(--text-secondary); border-bottom: 1px solid var(--border); font-weight: 600; }
-td { padding: 10px; border-bottom: 1px solid var(--border); }
-tr:hover td { background: var(--hover); }
-.badge { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
-.badge-pending  { background: #f39c12; color: #000; }
-.badge-running  { background: #2980b9; color: #fff; }
-.badge-done     { background: #27ae60; color: #fff; }
-.badge-fejl     { background: #c0392b; color: #fff; }
-.badge-on-hold  { background: #7f8c8d; color: #fff; }
-.mt { margin-top: 16px; }
-.gap { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.clickable { cursor: pointer; color: var(--accent); text-decoration: underline; }
-.clickable:hover { opacity: 0.8; }
-.linje-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 8px; align-items: end; margin-bottom: 8px; }
-.tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 2px solid var(--border); }
-.tab-btn { background: none; border: none; padding: 10px 16px; cursor: pointer; color: var(--text-secondary); border-bottom: 3px solid transparent; }
-.tab-btn.aktiv { color: var(--accent); border-bottom-color: var(--accent); }
-.tab-content { display: none; }
-.tab-content.aktiv { display: block; }
-</style>
+<link rel="stylesheet" href="/static/ngrave.css">
 </head>
 <body>
 
-<header>
-  <h1>⚙ nGrave</h1>
-  <button class="theme-toggle" onclick="toggleTheme()" title="Skift tema">🌓</button>
-  <div class="status" id="status-bar">Indlæser...</div>
+<header class="topbar">
+  <div class="topbar-in">
+    <h1>⚙ nGrave</h1>
+    <div class="chips" id="status-bar"><span class="chip"><span class="dot"></span>Indlæser…</span></div>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Skift mørkt/lyst tema" aria-label="Skift tema">🌓</button>
+  </div>
+  <nav id="nav-main" aria-label="Produktion"></nav>
+  <nav id="nav-sub" aria-label="Sektion"></nav>
 </header>
-
-<nav>
-  <button class="aktiv" onclick="skift('nyt-job')">🔑 Nyt nøgle-job</button>
-  <button onclick="visKoe('noegler')">🔑 Nøgle-kø</button>
-  <button onclick="skift('templates')">🔑 Nøgle-templates</button>
-  <span class="nav-sep" aria-hidden="true"></span>
-  <button onclick="skift('skilte')">🏷️ Nyt skilt</button>
-  <button onclick="visKoe('skilte')">🏷️ Skilte-kø</button>
-  <button onclick="skift('skilt-templates')">🏷️ Skilt-templates</button>
-  <span class="nav-sep" aria-hidden="true"></span>
-  <button onclick="skift('maskiner')">⚙ Maskiner</button>
-</nav>
 
 <main>
 
@@ -103,7 +29,7 @@ tr:hover td { background: var(--hover); }
 <div id="panel-nyt-job" class="panel aktiv">
   <div class="kort">
     <h2>Nyt nøgle-graveringsjob</h2>
-    
+
     <div class="form-section">
       <h3>Nøgledata</h3>
       <div id="job-felter-container" class="form-grid"></div>
@@ -112,20 +38,24 @@ tr:hover td { background: var(--hover); }
     <div class="form-section">
       <h3>Template og maskine</h3>
       <div class="form-grid">
-        <div><label>Template (nøgletype)</label><select id="job-template" onchange="opdaterJobFelter(); localStorage.setItem('sidst_template', this.value)"></select></div>
-        <div><label>Maskine</label><select id="job-maskine"></select></div>
-        <div><label>Jobnavn (valgfrit)</label><input id="job-navn" placeholder="Auto-genereres"></div>
+        <div><label for="job-template">Template (nøgletype)</label><select id="job-template" onchange="opdaterJobFelter(); try{localStorage.setItem('sidst_template', this.value)}catch(e){}"></select></div>
+        <div><label for="job-maskine">Maskine</label><select id="job-maskine" onchange="try{localStorage.setItem('sidst_maskine', this.value)}catch(e){} opdaterMaskineAdvarsler()"></select><div id="job-maskine-advarsel" class="banner advarsel mt" style="display:none;"></div></div>
+        <div><label for="job-navn">Jobnavn (valgfrit)</label><input id="job-navn" placeholder="Auto-genereres"></div>
         <div>
-          <label>Start slot</label>
-          <input id="job-startslot" type="number" value="1" min="1">
-          <p style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;">Første ledige slot på pladen</p>
+          <label for="job-startslot">Start slot</label>
+          <input id="job-startslot" type="number" value="1" min="1" oninput="opdaterPladeVisning()">
+          <p class="small muted" style="margin-top:4px;">Første ledige slot på pladen</p>
         </div>
+      </div>
+      <div class="plade-wrap" id="plade-wrap" style="display:none;">
+        <svg id="plade-svg" aria-label="Pladens slots"></svg>
+        <div class="opsummering" id="job-opsummering"></div>
       </div>
     </div>
 
-    <div class="mt gap">
-      <button class="btn btn-primary" onclick="sendJob()">Send til jobkø</button>
-      <span id="job-status" style="color:var(--text-secondary);font-size:0.85rem;"></span>
+    <div class="handlingsbar">
+      <button class="btn btn-primary" id="job-send" onclick="sendJob()">Send til jobkø</button>
+      <span id="job-status" class="small muted"></span>
     </div>
   </div>
 </div>
@@ -133,23 +63,23 @@ tr:hover td { background: var(--hover); }
 <!-- JOBKØ -->
 <div id="panel-jobkoe" class="panel">
   <div class="kort">
-    <h2>Jobkø</h2>
+    <h2>Jobkø <span class="sub" id="koe-opdateret"></span></h2>
     <div class="tabs">
-      <button class="tab-btn aktiv" onclick="skiftJobkoTab('noegler')">🔑 Nøgle-jobs</button>
-      <button class="tab-btn" onclick="skiftJobkoTab('skilte')">🏷️ Skilte-jobs</button>
+      <button class="tab-btn aktiv" data-tab="noegler" onclick="skiftJobkoTab('noegler')">🔑 Nøgle-jobs</button>
+      <button class="tab-btn" data-tab="skilte" onclick="skiftJobkoTab('skilte')">🏷️ Skilte-jobs</button>
     </div>
-    
+
     <div id="jobkoe-noegler" class="tab-content aktiv">
       <div class="gap" style="margin-bottom:12px;">
-        <button class="btn btn-secondary" onclick="hentBatches()">Opdater</button>
-        <button class="btn btn-secondary" onclick="location.reload()" style="margin-left:4px;">↺ Genindlæs side</button>
-        <button class="btn btn-danger" onclick="annullerAlle()" style="margin-left:8px;">✕ Annuller alle</button>
-        <button class="btn btn-danger" onclick="rydOpJobkoe('noegler')" style="margin-left:auto;">🗑️ Ryd op i færdige jobs</button>
+        <button class="btn btn-secondary btn-sm" onclick="hentBatches()">↻ Opdater</button>
+        <button class="btn btn-danger btn-sm" onclick="annullerAlle()">✕ Annuller ventende</button>
+        <button class="btn btn-primary btn-sm" id="gentag-forb-noegler" style="display:none;" onclick="gentagForbindelsesfejl()"></button>
+        <button class="btn btn-ghost btn-sm" onclick="rydOpJobkoe('noegler')" style="margin-left:auto;">🗑️ Ryd færdige</button>
       </div>
-      <table>
+      <table class="resp">
         <thead><tr>
           <th>ID</th><th>Navn</th><th>Template</th><th>Maskine</th>
-          <th>Markering</th><th>System</th><th>Løbenr</th><th>Status</th><th></th>
+          <th>Markering</th><th>System</th><th>Løbenr</th><th>Status</th><th>Oprettet</th><th></th>
         </tr></thead>
         <tbody id="batch-tabel"></tbody>
       </table>
@@ -157,12 +87,13 @@ tr:hover td { background: var(--hover); }
 
     <div id="jobkoe-skilte" class="tab-content">
       <div class="gap" style="margin-bottom:12px;">
-        <button class="btn btn-secondary" onclick="hentSkilteKoe()">Opdater</button>
-        <button class="btn btn-danger" onclick="rydOpJobkoe('skilte')" style="margin-left:auto;">🗑️ Ryd op i færdige jobs</button>
+        <button class="btn btn-secondary btn-sm" onclick="hentSkilteKoe()">↻ Opdater</button>
+        <button class="btn btn-primary btn-sm" id="gentag-forb-skilte" style="display:none;" onclick="gentagForbindelsesfejl()"></button>
+        <button class="btn btn-ghost btn-sm" onclick="rydOpJobkoe('skilte')" style="margin-left:auto;">🗑️ Ryd færdige</button>
       </div>
-      <table>
+      <table class="resp">
         <thead><tr>
-          <th>ID</th><th>Navn</th><th>Template</th><th>Størrelse</th><th>Linjer</th><th>Maskine</th><th>Status</th><th></th>
+          <th>ID</th><th>Tekst</th><th>Størrelse</th><th>Maskine</th><th>Status</th><th>Oprettet</th><th></th>
         </tr></thead>
         <tbody id="skilte-koe-tabel"></tbody>
       </table>
@@ -172,85 +103,72 @@ tr:hover td { background: var(--hover); }
 
 <!-- SKILTE -->
 <div id="panel-skilte" class="panel">
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;">
-    
-    <!-- Venstre: Form -->
-    <div class="kort">
-      <h2>Nyt skilt</h2>
-      
-      <div class="form-section">
-        <h3>Type</h3>
-        <div class="gap">
-          <label><input type="radio" name="skilt-type" value="template" onchange="skiftSkiltType()" checked> Fra template</label>
-          <label><input type="radio" name="skilt-type" value="frit" onchange="skiftSkiltType()"> Frit skilt</label>
-        </div>
-      </div>
+  <div class="skilt-layout">
 
-      <div id="skilt-template-sektion" class="form-section">
-        <h3>Vælg template</h3>
-        <div class="form-grid">
-          <div><label>Skilt-template</label><select id="skilt-template-valg" onchange="loadSkiltTemplate()"></select></div>
-        </div>
-      </div>
-
-      <div id="skilt-frit-sektion" class="form-section" style="display:none;">
-        <h3>Størrelse</h3>
-        <div class="form-grid">
-          <div><label>Bredde (mm)</label><input id="skilt-bredde" type="number" value="200" step="1" onchange="opdaterSkiltPreview()"></div>
-          <div><label>Højde (mm)</label><input id="skilt-hoejde" type="number" value="100" step="1" onchange="opdaterSkiltPreview()"></div>
-        </div>
-      </div>
-
-      <div class="form-section">
-        <h3>Maskine</h3>
-        <div class="form-grid">
-          <div><label>Vælg maskine</label><select id="skilt-maskine"></select></div>
-        </div>
-      </div>
-
-      <div class="form-section">
-        <h3>Tekst-linjer</h3>
-        <div id="skilt-linjer-container"></div>
-        <div class="mt gap">
-          <button class="btn btn-secondary" onclick="tilfoejLinje()">+ Tilføj linje</button>
-          <span style="color:var(--text-secondary);font-size:0.85rem;">(Max 10 linjer)</span>
-        </div>
-      </div>
-
-      <div class="form-section">
-        <h3>Afstand og margener</h3>
-        <div class="form-grid">
-          <div>
-            <label>Top-margen (mm)</label>
-            <input id="skilt-margin-top" type="number" value="" step="0.5" placeholder="Auto (10%)" onchange="opdaterSkiltPreview()">
-          </div>
-          <div>
-            <label>Bund-margen (mm)</label>
-            <input id="skilt-margin-bund" type="number" value="" step="0.5" placeholder="Auto (10%)" onchange="opdaterSkiltPreview()">
-          </div>
-          <div>
-            <label>Linje-afstand (mm)</label>
-            <input id="skilt-linje-afstand" type="number" value="" step="0.5" placeholder="Auto (fordelt jævnt)" onchange="opdaterSkiltPreview()">
-          </div>
-        </div>
-      </div>
-
-      <div class="mt gap">
-        <button class="btn btn-primary" onclick="sendSkilt()">Send skilt til jobkø</button>
-        <span id="skilt-status" style="color:var(--text-secondary);font-size:0.85rem;"></span>
+    <!-- Forhåndsvisning (først i DOM → øverst + sticky på mobil) -->
+    <div>
+      <div class="kort sticky">
+        <h2>Forhåndsvisning <span class="sub" id="skilt-meta"></span></h2>
+        <div id="skilt-banner"></div>
+        <div class="svg-wrap"><svg id="skilt-preview" role="img" aria-label="Forhåndsvisning af skilt"></svg></div>
+        <p class="small muted" style="margin-top:8px;">Viser de faktiske gravér-streger — præcis det maskinen kommer til at køre. Blå stiplede linjer er margenerne.</p>
       </div>
     </div>
 
-    <!-- Højre: Preview -->
-    <div class="kort" style="position:sticky;top:20px;">
-      <h2>Visualisering</h2>
-      <p style="color:var(--text-secondary);font-size:0.8rem;margin-bottom:12px;">Live preview — opdateres automatisk</p>
-      <div style="background:var(--bg-tertiary);padding:12px;border-radius:6px;display:flex;justify-content:center;align-items:center;min-height:300px;overflow:auto;">
-        <svg id="skilt-preview" style="max-width:100%;background:#fff;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.2);"></svg>
+    <div>
+      <div class="kort">
+        <h2>Nyt skilt</h2>
+        <div class="seg" id="skilt-type-seg">
+          <button class="aktiv" data-type="template" onclick="skiftSkiltType('template')">Fra template</button>
+          <button data-type="frit" onclick="skiftSkiltType('frit')">Frit skilt</button>
+        </div>
+
+        <div id="skilt-template-sektion" class="mt">
+          <label for="skilt-template-valg">Skilt-template</label>
+          <select id="skilt-template-valg" onchange="loadSkiltTemplate()"></select>
+          <div id="skilt-template-info" class="small muted" style="margin-top:6px;"></div>
+        </div>
+
+        <div id="skilt-frit-sektion" class="mt" style="display:none;">
+          <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+            <div><label for="skilt-bredde">Bredde (mm)</label><input id="skilt-bredde" type="number" value="200" step="1" min="5" oninput="opdaterSkiltPreview()"></div>
+            <div><label for="skilt-hoejde">Højde (mm)</label><input id="skilt-hoejde" type="number" value="100" step="1" min="5" oninput="opdaterSkiltPreview()"></div>
+          </div>
+          <div class="preset-rad" id="skilt-presets"></div>
+        </div>
+
+        <div class="mt">
+          <label for="skilt-maskine">Maskine</label>
+          <select id="skilt-maskine" onchange="try{localStorage.setItem('sidst_skilt_maskine', this.value)}catch(e){} opdaterMaskineAdvarsler()"></select>
+          <div id="skilt-maskine-advarsel" class="banner advarsel mt" style="display:none;"></div>
+        </div>
+
+        <details class="mt" id="skilt-margener">
+          <summary>Margener og linjeafstand</summary>
+          <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr;margin-top:8px;">
+            <div><label for="skilt-margin-top">Top (mm)</label><input id="skilt-margin-top" type="number" step="0.5" min="0" placeholder="Auto 10%" oninput="opdaterSkiltPreview()"></div>
+            <div><label for="skilt-margin-bund">Bund (mm)</label><input id="skilt-margin-bund" type="number" step="0.5" min="0" placeholder="Auto 10%" oninput="opdaterSkiltPreview()"></div>
+            <div><label for="skilt-linje-afstand">Linjeafstand</label><input id="skilt-linje-afstand" type="number" step="0.5" min="0" placeholder="Auto" oninput="opdaterSkiltPreview()"></div>
+          </div>
+          <p class="small muted" style="margin-top:6px;">Margen er afstanden fra skiltets kant til selve teksten. Tom = automatisk.</p>
+        </details>
       </div>
-      <div style="margin-top:8px;display:flex;gap:12px;font-size:0.75rem;color:var(--text-secondary);">
-        <span>📐 Proportional visning</span>
-        <span>⬛ = tekst-felt</span>
+
+      <div class="kort">
+        <h2>Tekst <span class="sub">op til 10 linjer</span></h2>
+        <div id="skilt-linjer-container"></div>
+        <div class="gap mt">
+          <button class="btn btn-secondary" onclick="tilfoejLinje()">+ Tilføj linje</button>
+          <button class="btn btn-ghost" onclick="rydSkiltTekst()">Ryd tekst</button>
+        </div>
+      </div>
+
+      <div class="kort">
+        <div class="handlingsbar">
+          <button class="btn btn-primary" id="skilt-send" onclick="sendSkilt()">Send skilt til jobkø</button>
+          <button class="btn btn-ghost" onclick="gemSkiltSomTemplate()" title="Gem størrelse, linjer, fonts og placering som genbrugeligt layout">💾 Gem som template</button>
+        </div>
+        <div id="skilt-status" class="small muted" style="margin-top:8px;"></div>
       </div>
     </div>
   </div>
@@ -260,7 +178,7 @@ tr:hover td { background: var(--hover); }
 <div id="panel-templates" class="panel">
   <div class="kort">
     <h2>Nøgle-templates</h2>
-    <table>
+    <table class="resp">
       <thead><tr><th>ID</th><th>Navn</th><th>Nøgletype</th><th>Zone B×H</th><th>Slots</th><th></th></tr></thead>
       <tbody id="template-tabel"></tbody>
     </table>
@@ -274,9 +192,9 @@ tr:hover td { background: var(--hover); }
     <input type="hidden" id="t-id">
     
     <div class="tabs">
-      <button class="tab-btn aktiv" onclick="skiftTab('t-basis')">Basis</button>
-      <button class="tab-btn" onclick="skiftTab('t-felt')">Felt-placering</button>
-      <button class="tab-btn" onclick="skiftTab('t-grid')">Grid</button>
+      <button class="tab-btn aktiv" data-tab="t-basis" onclick="skiftTab('t-basis')">Basis</button>
+      <button class="tab-btn" data-tab="t-felt" onclick="skiftTab('t-felt')">Felt-placering</button>
+      <button class="tab-btn" data-tab="t-grid" onclick="skiftTab('t-grid')">Grid</button>
     </div>
 
     <div id="tab-t-basis" class="tab-content aktiv">
@@ -504,55 +422,65 @@ tr:hover td { background: var(--hover); }
 <!-- SKILT-TEMPLATES -->
 <div id="panel-skilt-templates" class="panel">
   <div class="kort">
-    <h2>Skilt-templates</h2>
-    <table>
+    <h2>Skilt-templates <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="visNySkiltTemplate()">+ Ny skilt-template</button></h2>
+    <p class="small muted" style="margin:8px 0 12px;">Et template er et fast layout (størrelse, antal linjer, justering, skrifttype og højde pr. linje). Selve teksten skriver man når skiltet bestilles.</p>
+    <table class="resp">
       <thead><tr><th>ID</th><th>Navn</th><th>Størrelse</th><th>Linjer</th><th></th></tr></thead>
       <tbody id="skilt-template-tabel"></tbody>
     </table>
-    <div class="mt">
-      <button class="btn btn-secondary" onclick="visNySkiltTemplate()">+ Ny skilt-template</button>
-    </div>
   </div>
 
-  <div class="kort" id="skilt-template-form" style="display:none;">
-    <h2 id="skilt-template-form-titel">Ny skilt-template</h2>
-    <input type="hidden" id="st-id">
-    
-    <div class="form-grid">
-      <div><label>Navn</label><input id="st-navn"></div>
-      <div><label>Beskrivelse</label><input id="st-beskrivelse"></div>
-      <div><label>Bredde (mm)</label><input id="st-bredde" type="number" value="200" step="1"></div>
-      <div><label>Højde (mm)</label><input id="st-hoejde" type="number" value="100" step="1"></div>
-      <div><label>Antal linjer</label><input id="st-antal" type="number" value="2" min="1" max="10" onchange="opdaterLinjeConfig()"></div>
-      <div><label>Standard maskine</label><select id="st-maskine"><option value="">Valgfri</option></select></div>
-    </div>
-
-    <div class="form-section">
-      <h3>Afstand og margener</h3>
-      <div class="form-grid">
-        <div>
-          <label>Top-margen (mm)</label>
-          <input id="st-margin-top" type="number" step="0.5" placeholder="Auto (10%)">
-        </div>
-        <div>
-          <label>Bund-margen (mm)</label>
-          <input id="st-margin-bund" type="number" step="0.5" placeholder="Auto (10%)">
-        </div>
-        <div>
-          <label>Linje-afstand (mm)</label>
-          <input id="st-linje-afstand" type="number" step="0.5" placeholder="Auto (jævnt fordelt)">
-        </div>
+  <div class="skilt-layout" id="skilt-template-form" style="display:none;">
+    <div>
+      <div class="kort sticky">
+        <h2>Forhåndsvisning <span class="sub">eksempel: »Linje 1«, »Linje 2« …</span></h2>
+        <div id="st-banner"></div>
+        <div class="svg-wrap"><svg id="st-preview" role="img" aria-label="Forhåndsvisning af template"></svg></div>
       </div>
     </div>
+    <div class="kort">
+      <h2 id="skilt-template-form-titel">Ny skilt-template</h2>
+      <input type="hidden" id="st-id">
 
-    <div class="form-section">
-      <h3>Linje-konfiguration</h3>
-      <div id="st-linjer-container"></div>
-    </div>
+      <div class="form-grid">
+        <div><label for="st-navn">Navn</label><input id="st-navn"></div>
+        <div><label for="st-beskrivelse">Beskrivelse</label><input id="st-beskrivelse"></div>
+        <div><label for="st-bredde">Bredde (mm)</label><input id="st-bredde" type="number" value="200" step="1" oninput="opdaterStPreview()"></div>
+        <div><label for="st-hoejde">Højde (mm)</label><input id="st-hoejde" type="number" value="100" step="1" oninput="opdaterStPreview()"></div>
+        <div><label for="st-antal">Antal linjer</label><input id="st-antal" type="number" value="2" min="1" max="10" onchange="opdaterLinjeConfig()"></div>
+        <div><label for="st-maskine">Standard maskine</label><select id="st-maskine"><option value="">Valgfri</option></select></div>
+      </div>
 
-    <div class="mt gap">
-      <button class="btn btn-primary" onclick="gemSkiltTemplate()">Gem template</button>
-      <button class="btn btn-secondary" onclick="skjulSkiltTemplateForm()">Annuller</button>
+      <div class="form-section mt">
+        <h3>Afstand og margener</h3>
+        <div class="form-grid">
+          <div><label for="st-margin-top">Top-margen (mm)</label><input id="st-margin-top" type="number" step="0.5" placeholder="Auto (10%)" oninput="opdaterStPreview()"></div>
+          <div><label for="st-margin-bund">Bund-margen (mm)</label><input id="st-margin-bund" type="number" step="0.5" placeholder="Auto (10%)" oninput="opdaterStPreview()"></div>
+          <div><label for="st-linje-afstand">Linjeafstand (mm)</label><input id="st-linje-afstand" type="number" step="0.5" placeholder="Auto (jævnt)" oninput="opdaterStPreview()"></div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <h3>Linje-konfiguration</h3>
+        <div id="st-linjer-container"></div>
+      </div>
+
+      <details class="form-section">
+        <summary>Avanceret: gravehastighed for dette template</summary>
+        <p class="small muted" style="margin:6px 0 10px;">Tom = maskinens standardværdier. Bruges kun hvis skilte i dette template skal graveres anderledes (fx dybere i messing).</p>
+        <div class="form-grid">
+          <div><label for="st-feed-xy">Feed XY (in/min)</label><input id="st-feed-xy" type="number" min="1" placeholder="12"></div>
+          <div><label for="st-feed-z">Feed Z (in/min)</label><input id="st-feed-z" type="number" min="1" placeholder="40"></div>
+          <div><label for="st-rpm">Spindle RPM</label><input id="st-rpm" type="number" min="1000" placeholder="16000"></div>
+          <div><label for="st-zop">Z-løft (mm)</label><input id="st-zop" type="number" step="0.1" placeholder="5"></div>
+          <div><label for="st-prox">Prox offset (mm)</label><input id="st-prox" type="number" step="0.1" placeholder="1.5"></div>
+        </div>
+      </details>
+
+      <div class="gap mt">
+        <button class="btn btn-primary" onclick="gemSkiltTemplate()">Gem template</button>
+        <button class="btn btn-ghost" onclick="skjulSkiltTemplateForm()">Annuller</button>
+      </div>
     </div>
   </div>
 </div>
@@ -564,8 +492,8 @@ tr:hover td { background: var(--hover); }
       <h2 style="margin:0;">Maskiner</h2>
       <button class="btn btn-secondary" onclick="visNyMaskine()">+ Ny maskine</button>
     </div>
-    <table>
-      <thead><tr><th>ID</th><th>Navn</th><th>Model</th><th>Protokol</th><th>IP</th><th>Port</th><th>Offset X</th><th>Offset Y</th><th>Offset Z</th><th>Spejl Y</th><th>Handlinger</th></tr></thead>
+    <table class="resp">
+      <thead><tr><th>ID</th><th>Navn</th><th>Model</th><th>Protokol</th><th>IP</th><th>Port</th><th>Forbindelse</th><th>Offset X</th><th>Offset Y</th><th>Offset Z</th><th>Spejl Y</th><th>Handlinger</th></tr></thead>
       <tbody id="maskiner-tabel"></tbody>
     </table>
   </div>
@@ -691,7 +619,9 @@ tr:hover td { background: var(--hover); }
 
 </main>
 
+<script src="/static/ui.js"></script>
 <script src="/static/ngrave_a.js"></script>
+<script src="/static/skilt.js"></script>
 <script src="/static/ngrave_b.js"></script>
 </body>
 </html>
