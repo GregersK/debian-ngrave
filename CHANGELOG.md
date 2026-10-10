@@ -13,6 +13,21 @@ Skrifttyper + skilt-sikkerhed + menu-opdeling + robust auto-opdatering + port 80
 - **Kø**: "Lav igen" på fejlede/færdige skilte og hele batches (`POST /api/skilte/<id>/gentag`, `/api/batches/<id>/gentag`), læsbare fejlårsager i stedet for rå undtagelser, auto-opdatering kun når fanen er synlig.
 - Skilt-templates har nu felter for **feed, feed Z, rpm, Z-dybde og prox-offset** i UI'et (backend understøttede det siden v6.0, men der var ingen måde at sætte dem på) og kan knyttes til en maskine.
 
+### Kø: én tråd pr. maskine + sikre genforsøg
+- **En slukket eller hængende maskine blokerer ikke længere de andre.** Køen var én serie: ét job ad gangen på tværs af alle maskiner, så fx en slukket maskine med mange jobs ventede 15–30 s pr. job før de næste maskiners jobs kom til. Nu har hver maskine sin egen arbejdstråd (stadig ét job ad gangen pr. maskine, ældste først).
+- **Forbindelsesfejl prøves igen automatisk** (3 forsøg, pause 5 og 20 s), fordi intet er sendt når forbindelsen ikke kan oprettes. Fejl *midt i* en sending prøves aldrig igen automatisk (kunne give dobbelt gravering) — jobbet får Fejl med en forklaring, og »Gentag« beder fortsat om bekræftelse.
+- **Fail-fast:** er en maskine opgivet, fejler dens øvrige ventende jobs straks (30 s) i stedet for at bruge 25 s hver.
+- Nyt `fejl_kode` på nøgle- og skilte-jobs (additiv migration) og ny knap **»Prøv N jobs igen (maskinen kunne ikke nås)«**: `POST /api/jobkoe/gentag-fejlede`. Kun jobs hvor intet blev sendt sættes tilbage — så der er ingen risiko for dobbelt gravering, og der spørges ikke om bekræftelse.
+- Forbindelses-timeout er nu 5 s (tidligere 15 s for S5 / 30 s for S3 før man fandt ud af at maskinen var slukket); timeout for selve dataoverførslen er uændret.
+- Fejlteksterne skelner nu mellem »kan ikke nå maskinen« (tænd den, tjek netværk) og »forbindelsen røg midt i sendingen« (tjek maskinen før du gentager).
+- **Skilte kan kun sendes til G-code-maskiner (S5).** Tidligere kunne et skilt sendes til en CIPHER (S3) maskine, som ikke forstår G-code. Afvises nu ved oprettelse, og kun S5-maskiner kan vælges i Nyt skilt.
+- **Test-position** (Maskiner → Kalibrér) kører ikke samtidig med en sending, og kræver bekræftelse hvis der lige er sendt et program (maskinen graverer formentlig stadig). Fejlen ved slukket maskine er nu konkret i stedet for »Kunne ikke kontakte maskinen«.
+
+### Online-kontrol af maskiner
+- Ny kolonne **Forbindelse** under Maskiner (Online / Svarer ikke / Afviser forbindelsen), knappen **Tjek nu**, og en chip i statuslinjen: `⚠ 1 maskine svarer ikke`. Maskinvælgerne i Nyt job/Nyt skilt markerer maskiner der ikke svarer og advarer — men blokerer ikke (maskinen kan være tændt i mellemtiden, og køen prøver igen).
+- Tjekket er kun `connect` + luk — der sendes aldrig data — og kører hvert 30. sekund (`NGRAVE_PROBE_INTERVAL`, `0` = fra). En maskine der lige har fået et program tjekkes **ikke** i 15 minutter (`NGRAVE_PROBE_EFTER_SEND`), og tjekket springes over mens nGrave selv sender. Status opdateres også af selve sendingerne.
+- ⚠ Det er ikke afprøvet mod en rigtig gravemaskine under gravering. Test på én maskine først (se PR-beskrivelsen); `NGRAVE_PROBE_INTERVAL=0` slår baggrunds-tjekket fra uden at ændre andet.
+
 ### Skilte: ægte layout-motor + forhåndsvisning (WYSIWYG)
 - Ny fælles `layout_skilt()` bruges af **både forhåndsvisning og gravering** — det du ser er det der graveres. Nyt endpoint `POST /api/skilt/preview` returnerer de faktiske streger.
 - **Bounds-check rettet**: den første version af checken (kun i ikke-udgivne v6.2-commits) kontrollerede kun X-udstrækning og at *baseline* lå inden for skiltets højde — ikke de faktiske strøg. Tekst med nedhæng (g, j, p, q, y) eller en høj linje kunne derfor stadig række ud over over-/underkanten. Checken kigger nu på hele strøg-boksen i både X og Y og afviser med en konkret besked før jobbet lægges i køen.
@@ -27,7 +42,7 @@ Skrifttyper + skilt-sikkerhed + menu-opdeling + robust auto-opdatering + port 80
 - Batches får en `fejl_besked`-kolonne (additiv migration — eksisterende databaser berøres ikke) så årsagen til en fejlet batch kan vises.
 
 ### Tests
-- Ny testpakke (`python3 -m unittest discover -s tests`, 28 tests): layout-motoren (bounds inkl. nedhæng, centrering, margin, manuelt X, overlap-advarsel, preview og G-code bruger samme koordinater), skilte-API'et (validering, preview, gentag, feed/maskine i skilt-template), nøgle-ordrer (for store/ugyldige afvises med 400), statuslinje-tællere og eksport/import-roundtrip.
+- Ny testpakke (`python3 -m unittest discover -s tests`, 45 tests): layout-motoren (bounds inkl. nedhæng, centrering, margin, manuelt X, overlap-advarsel, preview og G-code bruger samme koordinater), skilte-API'et (validering, preview, gentag, feed/maskine i skilt-template), nøgle-ordrer (for store/ugyldige afvises med 400), statuslinje-tællere, eksport/import-roundtrip samt kø og online-kontrol (rigtige sockets mod en lokal falsk maskine: én tråd pr. maskine, genforsøg, fail-fast, probe-regler).
 
 ### Backup af templates (eksport/import)
 - Ny **💾 Backup af templates**-sektion under **Maskiner**: eksportér alle nøgle- og skilt-templates til en JSON-fil, og importér dem igen (på samme eller en anden maskine).

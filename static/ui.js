@@ -120,7 +120,7 @@ function gaaTil(id, opts = {}) {
   else if (id === 'skilte') { if (typeof initSkilt === 'function') initSkilt(); }
   else if (id === 'templates') hentTemplates();
   else if (id === 'skilt-templates') hentSkiltTemplates();
-  else if (id === 'maskiner') hentMaskiner();
+  else if (id === 'maskiner') { hentMaskiner(); _startAutoRefresh(); }
   else if (id === 'nyt-job') { if (typeof opdaterPladeVisning === 'function') opdaterPladeVisning(); }
 
   if (!opts.noHash && location.hash.slice(1) !== id) history.pushState(null, '', '#' + id);
@@ -152,6 +152,7 @@ function _startAutoRefresh() {
     if (document.hidden) return;
     if (aktivSide === 'koe-skilte') hentSkilteKoe();
     else if (aktivSide === 'koe-noegler') hentBatches();
+    else if (aktivSide === 'maskiner') hentMaskinStatus();
   }, 5000);
 }
 function _stopAutoRefresh() { if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; } }
@@ -162,6 +163,45 @@ function maalHeader() {
   if (h) document.documentElement.style.setProperty('--hdr-h', h.offsetHeight + 'px');
 }
 window.addEventListener('resize', debounce(maalHeader, 150));
+
+// ─── Online-status for maskiner ──────────────────────────────────────────────
+// {maskine_id: 'online' | 'offline' | 'afviser' | 'ukendt'} — opdateres af statuslinjen hvert 4. sekund.
+let maskinStatus = {};
+const IKKE_NAAET = (st) => st === 'offline' || st === 'afviser';
+
+function sekTekst(s) {
+  if (s == null) return '—';
+  if (s < 5) return 'lige nu';
+  if (s < 60) return `${s} s siden`;
+  if (s < 3600) return `${Math.round(s / 60)} min siden`;
+  return `${Math.round(s / 3600)} t siden`;
+}
+
+// Markér maskiner der ikke svarer i vælgerne, og vis en advarsel (blokerer ikke — nGrave prøver alligevel).
+function opdaterMaskineAdvarsler() {
+  [['job-maskine', 'job-maskine-advarsel'], ['skilt-maskine', 'skilt-maskine-advarsel']].forEach(([selId, boxId]) => {
+    const sel = $(selId), box = $(boxId);
+    if (!sel || !box) return;
+    [...sel.options].forEach((o) => {
+      if (o.dataset.navn === undefined) o.dataset.navn = o.textContent;
+      const tekst = o.dataset.navn + (IKKE_NAAET(maskinStatus[o.value]) ? ' — ⚠ svarer ikke' : '');
+      if (o.textContent !== tekst) o.textContent = tekst;
+    });
+    const st = maskinStatus[sel.value];
+    let html = '';
+    if (!sel.options.length) {
+      html = selId === 'skilt-maskine'
+        ? 'Der er ingen S5-maskine (G-code) oprettet — skilte kan kun graveres på S5. Opret en under <a href="#maskiner">Maskiner</a>.'
+        : 'Der er ingen maskine oprettet endnu. Opret en under <a href="#maskiner">Maskiner</a>.';
+    } else if (st === 'offline') {
+      html = '<b>Maskinen svarer ikke på netværket.</b> Du kan stadig sende jobbet — nGrave prøver 3 gange og melder fejl, hvis maskinen stadig er slukket. Så kan du trykke »Prøv igen« i køen når den er tændt.';
+    } else if (st === 'afviser') {
+      html = '<b>Maskinen afviser forbindelsen</b> (porten er lukket, eller en anden forbindelse er åben mod den). Tjek at maskinen er klar til at modtage programmer.';
+    }
+    box.innerHTML = html;
+    box.style.display = html ? 'block' : 'none';
+  });
+}
 
 // ─── Statuslinje ─────────────────────────────────────────────────────────────
 async function opdaterStatus() {
@@ -178,9 +218,13 @@ async function opdaterStatus() {
       if (pend) return `${ikon} ${pend} afventer`;
       return `${ikon}<span class="t"> ledig${hold ? ' · ' + hold + ' på hold' : ''}</span>`;
     };
+    maskinStatus = s.maskiner || {};
+    const n = s.maskiner_offline || 0;
     bar.innerHTML =
       chip(kls(s.noegler_running, s.noegler_pending), tekst('🔑', s.noegler_pending, s.noegler_running, s.noegler_hold), 'koe-noegler') +
-      chip(kls(s.skilte_running, s.skilte_pending), tekst('🏷️', s.skilte_pending, s.skilte_running, 0), 'koe-skilte');
+      chip(kls(s.skilte_running, s.skilte_pending), tekst('🏷️', s.skilte_pending, s.skilte_running, 0), 'koe-skilte') +
+      (n ? `<span class="chip offline" onclick="gaaTil('maskiner')" title="Gå til Maskiner"><span class="dot"></span>⚠ ${n} ${n === 1 ? 'maskine' : 'maskiner'} svarer ikke</span>` : '');
+    opdaterMaskineAdvarsler();
   } catch (e) {
     bar.innerHTML = '<span class="chip offline">Ingen forbindelse til nGrave</span>';
   }

@@ -1,6 +1,7 @@
 """S3 Worker — CIPHER CEF over RS232/Ethernet"""
 import socket, time
 from .font_manager import get_strokes
+from .forbindelse import aabn
 
 SPM = 40  # steps per mm
 
@@ -85,9 +86,9 @@ def byg_batch(jobs, tmpl):
     return ";".join(cmds) + ";|"
 
 def send(job_str, ip, port):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    # aabn() kaster ForbindelsesFejl hvis vi ikke kommer igennem — dvs. intet er sendt.
+    with aabn(ip, port) as sock:
         sock.settimeout(30)
-        sock.connect((ip, port))
         sock.sendall(job_str.encode("ascii", errors="ignore"))
         time.sleep(1.0)
         try: return sock.recv(4096)

@@ -137,6 +137,7 @@ ngrave/
 │   ├── font_manager.py     # Font router (block + Hershey fonts)
 │   ├── gcode_worker.py     # G-code generator til S5
 │   ├── cipher_worker.py    # CIPHER CEF generator til S3
+│   ├── forbindelse.py      # Forbindelse, online-probe og status mod maskiner
 │   └── skilt_worker.py     # Layout-motor + G-code til skilte (bruges også af preview)
 ├── templates/
 │   └── index.html          # Web UI (HTML)
@@ -194,6 +195,23 @@ echo stable | sudo tee /etc/ngrave/channel
 ```
 Typisk flow: tag `v6.3-beta1` → kun beta-maskiner opdaterer → test → tag `v6.3` → resten (og beta-maskinerne rykker op til den endelige). Kanal + version vises i **Maskiner → System**.
 
+### Kø og online-kontrol
+
+- **Én arbejdstråd pr. maskine.** En maskine kører sine jobs ét ad gangen (nøgle-batches før skilte, ældste først), men maskiner er uafhængige — en slukket maskine med 30 jobs bremser ikke de andre.
+- **Forbindelsesfejl prøves igen, andre fejl gør ikke.** Kan nGrave ikke oprette forbindelse, er *intet sendt*, så det er sikkert at prøve igen (3 forsøg, pause 5 og 20 s). Fejler sendingen *midt i* programmet, ved vi ikke hvor meget maskinen nåede — så gentager nGrave det aldrig automatisk (det kunne gravere to gange); jobbet får status Fejl og en forklaring.
+- **Opgivet maskine = hurtig fejl.** Efter tre mislykkede forsøg fejler resten af maskinens ventende jobs med det samme (i 30 s) i stedet for at bruge 25 s hver. Knappen **»Prøv N jobs igen«** i køen sætter dem tilbage, når maskinen er tændt — kun jobs hvor intet blev sendt.
+- **Online-status.** Hvert 30. sekund tjekkes det om maskinerne svarer (kun `connect` + luk — der sendes aldrig data). Status vises under **Maskiner**, i statuslinjen (`⚠ 1 maskine svarer ikke`) og i maskinvælgerne. Det blokerer ikke for at sende et job.
+- **Maskinen røres ikke mens den graverer.** nGrave ved kun at et program er *sendt*, ikke hvornår maskinen er færdig. Derfor tjekkes en maskine ikke i 15 minutter efter en sending, og **Test-position** kræver en bekræftelse i samme periode.
+- Skilte kan kun sendes til G-code-maskiner (S5).
+
+Indstillinger (valgfrie, i `/etc/ngrave/ngrave.env`):
+
+| Variabel | Standard | Betydning |
+|----------|----------|-----------|
+| `NGRAVE_PROBE_INTERVAL` | `30` | Sekunder mellem online-tjek. `0` slår baggrunds-tjek helt fra |
+| `NGRAVE_PROBE_EFTER_SEND` | `900` | Sekunder efter en sending hvor maskinen ikke tjekkes/flyttes |
+| `NGRAVE_SEND_FORSOEG` | `3` | Forsøg pr. job når maskinen ikke kan nås |
+
 ### Prox-sensor
 `G30` bruges til at finde materialets overflade pr. streg. Offset justeres i template (`prox_offset_mm`).
 
@@ -205,7 +223,9 @@ Typisk flow: tag `v6.3-beta1` → kun beta-maskiner opdaterer → test → tag `
 |--------|----------|-------------|
 | GET | `/api/maskiner` | Liste alle maskiner |
 | PUT | `/api/maskiner/<id>/kalibrering` | Sæt kalibrerings-offset |
-| POST | `/api/maskiner/<id>/test` | Kør til 0,0 position |
+| POST | `/api/maskiner/<id>/test` | Kør til 0,0 position (kræver bekræftelse hvis der lige er sendt et program) |
+| GET | `/api/maskiner/status` | Online-status + kø-tal pr. maskine (rører ikke maskinerne) |
+| POST | `/api/maskiner/<id>/ping` | Tjek nu: opretter og lukker en forbindelse — sender aldrig data |
 | GET | `/api/templates` | Liste nøgle-templates |
 | POST | `/api/templates` | Opret template |
 | PUT | `/api/templates/<id>` | Opdater template |
@@ -214,6 +234,9 @@ Typisk flow: tag `v6.3-beta1` → kun beta-maskiner opdaterer → test → tag `
 | POST | `/api/batches` | Opret batch |
 | POST | `/api/batches/<id>/frigiv` | Frigiv on-hold batch |
 | POST | `/api/batches/<id>/annuller` | Annuller batch |
+| POST | `/api/batches/<id>/gentag` | Sæt fejlet batch tilbage i køen |
+| POST | `/api/skilte/<id>/gentag` | Sæt fejlet skilt tilbage i køen |
+| POST | `/api/jobkoe/gentag-fejlede` | Sæt alle jobs tilbage der fejlede fordi maskinen ikke kunne nås (intet var sendt) |
 | POST | `/api/jobkoe/ryd-op` | Slet færdige jobs |
 | GET/POST | `/api/skilt-templates` | Skilt-templates CRUD |
 | GET/POST | `/api/skilte` | Skilte-jobkø |

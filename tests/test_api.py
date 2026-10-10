@@ -110,8 +110,13 @@ class Api(unittest.TestCase):
             self.assertIn(k, d)
 
     def test_kort_fejl_er_menneskelig(self):
-        self.assertIn('timeout', A._kort_fejl(TimeoutError()))
-        self.assertIn('afviste', A._kort_fejl(ConnectionRefusedError()))
+        from workers.forbindelse import ForbindelsesFejl, _forklar
+        for fejl, tekst in ((TimeoutError(), 'svarede ikke'), (ConnectionRefusedError(), 'afviste'),
+                            (OSError(113, 'No route to host'), 'Kan ikke nå maskinen')):
+            self.assertIn(tekst, A._kort_fejl(ForbindelsesFejl(*_forklar(fejl, '10.0.0.5', 22000))))
+        # fejl MIDT i en sending: ikke "tænd maskinen", men "tjek maskinen før du gentager"
+        self.assertIn('midt i sendingen', A._kort_fejl(TimeoutError()))
+        self.assertIn('afbrudt', A._kort_fejl(ConnectionResetError()))
         self.assertIn('Netværksfejl', A._kort_fejl(OSError(113, 'No route to host')))
 
     # --- backup round-trip -------------------------------------------------

@@ -39,7 +39,7 @@
       <h3>Template og maskine</h3>
       <div class="form-grid">
         <div><label for="job-template">Template (nøgletype)</label><select id="job-template" onchange="opdaterJobFelter(); try{localStorage.setItem('sidst_template', this.value)}catch(e){}"></select></div>
-        <div><label for="job-maskine">Maskine</label><select id="job-maskine" onchange="try{localStorage.setItem('sidst_maskine', this.value)}catch(e){}"></select></div>
+        <div><label for="job-maskine">Maskine</label><select id="job-maskine" onchange="try{localStorage.setItem('sidst_maskine', this.value)}catch(e){} opdaterMaskineAdvarsler()"></select><div id="job-maskine-advarsel" class="banner advarsel mt" style="display:none;"></div></div>
         <div><label for="job-navn">Jobnavn (valgfrit)</label><input id="job-navn" placeholder="Auto-genereres"></div>
         <div>
           <label for="job-startslot">Start slot</label>
@@ -73,6 +73,7 @@
       <div class="gap" style="margin-bottom:12px;">
         <button class="btn btn-secondary btn-sm" onclick="hentBatches()">↻ Opdater</button>
         <button class="btn btn-danger btn-sm" onclick="annullerAlle()">✕ Annuller ventende</button>
+        <button class="btn btn-primary btn-sm" id="gentag-forb-noegler" style="display:none;" onclick="gentagForbindelsesfejl()"></button>
         <button class="btn btn-ghost btn-sm" onclick="rydOpJobkoe('noegler')" style="margin-left:auto;">🗑️ Ryd færdige</button>
       </div>
       <table class="resp">
@@ -87,6 +88,7 @@
     <div id="jobkoe-skilte" class="tab-content">
       <div class="gap" style="margin-bottom:12px;">
         <button class="btn btn-secondary btn-sm" onclick="hentSkilteKoe()">↻ Opdater</button>
+        <button class="btn btn-primary btn-sm" id="gentag-forb-skilte" style="display:none;" onclick="gentagForbindelsesfejl()"></button>
         <button class="btn btn-ghost btn-sm" onclick="rydOpJobkoe('skilte')" style="margin-left:auto;">🗑️ Ryd færdige</button>
       </div>
       <table class="resp">
@@ -137,7 +139,8 @@
 
         <div class="mt">
           <label for="skilt-maskine">Maskine</label>
-          <select id="skilt-maskine" onchange="try{localStorage.setItem('sidst_skilt_maskine', this.value)}catch(e){}"></select>
+          <select id="skilt-maskine" onchange="try{localStorage.setItem('sidst_skilt_maskine', this.value)}catch(e){} opdaterMaskineAdvarsler()"></select>
+          <div id="skilt-maskine-advarsel" class="banner advarsel mt" style="display:none;"></div>
         </div>
 
         <details class="mt" id="skilt-margener">
@@ -490,7 +493,7 @@
       <button class="btn btn-secondary" onclick="visNyMaskine()">+ Ny maskine</button>
     </div>
     <table class="resp">
-      <thead><tr><th>ID</th><th>Navn</th><th>Model</th><th>Protokol</th><th>IP</th><th>Port</th><th>Offset X</th><th>Offset Y</th><th>Offset Z</th><th>Spejl Y</th><th>Handlinger</th></tr></thead>
+      <thead><tr><th>ID</th><th>Navn</th><th>Model</th><th>Protokol</th><th>IP</th><th>Port</th><th>Forbindelse</th><th>Offset X</th><th>Offset Y</th><th>Offset Z</th><th>Spejl Y</th><th>Handlinger</th></tr></thead>
       <tbody id="maskiner-tabel"></tbody>
     </table>
   </div>

@@ -27,8 +27,10 @@ async function initDropdowns() {
 
   const smask = document.getElementById('skilt-maskine');
   const forrigeSkiltMaskine = smask.value || lsGet('sidst_skilt_maskine');
-  smask.innerHTML = maskiner.map(m => `<option value="${m.id}">${esc(m.navn)}</option>`).join('');
+  // Skilte graveres som G-code → kun S5-maskiner kan bruges (CIPHER/S3 forstår ikke programmet)
+  smask.innerHTML = maskiner.filter(m => m.protokol === 'gcode').map(m => `<option value="${m.id}">${esc(m.navn)}</option>`).join('');
   if (forrigeSkiltMaskine && smask.querySelector(`option[value="${forrigeSkiltMaskine}"]`)) smask.value = forrigeSkiltMaskine;
+  opdaterMaskineAdvarsler();
 
   const stvalg = document.getElementById('skilt-template-valg');
   stvalg.innerHTML = '<option value="">Vælg template...</option>' +
@@ -183,10 +185,32 @@ async function sendJob() {
 
 // ─── Jobkøer ──────────────────────────────────────────────────────────────────
 const STATUS_TEKST = { pending: 'Afventer', running: 'Sender…', done: 'Sendt', fejl: 'Fejl', 'on-hold': 'Venter på plade' };
-function statusBadge(st, fejl) {
+function statusBadge(st, fejl, kode) {
   const tip = st === 'done' ? 'Programmet er sendt til maskinen' : (st === 'on-hold' ? 'Frigiv når pladen er skiftet' : '');
-  return `<span class="badge badge-${esc(st)}" title="${esc(tip)}">${esc(STATUS_TEKST[st] || st)}</span>` +
-         (fejl ? `<div class="fejltekst">${esc(fejl)}</div>` : '');
+  let ekstra = '';
+  if (fejl) {
+    if (st === 'fejl') {
+      ekstra = `<div class="fejltekst">${esc(fejl)}</div>`;
+      if (kode === 'forbindelse') ekstra += '<div class="notetekst">Intet blev sendt — sikkert at prøve igen.</div>';
+    } else {
+      ekstra = `<div class="notetekst">${esc(fejl)}</div>`;   // fx »Prøver igen om 5 s (forsøg 2 af 3)«
+    }
+  }
+  return `<span class="badge badge-${esc(st)}" title="${esc(tip)}">${esc(STATUS_TEKST[st] || st)}</span>` + ekstra;
+}
+// Viser/skjuler »Prøv igen«-knappen når der er jobs der fejlede fordi maskinen ikke kunne nås
+function visGentagForbindelse(rows, knapId) {
+  const n = rows.filter(r => r.status === 'fejl' && r.fejl_kode === 'forbindelse').length;
+  const b = $(knapId);
+  if (!b) return;
+  b.style.display = n ? '' : 'none';
+  b.textContent = `↻ Prøv ${n} ${n === 1 ? 'job' : 'jobs'} igen (maskinen kunne ikke nås)`;
+}
+async function gentagForbindelsesfejl() {
+  const r = await api('/api/jobkoe/gentag-fejlede', 'POST', {});
+  if (r.ok) toast(`${r.noegler + r.skilte} ${r.noegler + r.skilte === 1 ? 'job' : 'jobs'} sat tilbage i køen`, 'ok');
+  else toast(r.fejl || 'Kunne ikke sætte jobs tilbage', 'fejl');
+  hentBatches(); hentSkilteKoe();
 }
 function koeOpdateret() { const el = $('koe-opdateret'); if (el) el.textContent = 'opdateret ' + new Date().toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
 
@@ -197,6 +221,7 @@ async function hentSkilteKoe() {
   try {
     const rows = await api('/api/skilte');
     skilteKoeRows = rows;
+    visGentagForbindelse(rows, 'gentag-forb-skilte');
     tbody.innerHTML = rows.length === 0
       ? `<tr><td colspan="7" class="tomt"><span class="stor">🏷️</span>Ingen skilte i køen.<br><button class="btn btn-secondary btn-sm mt" onclick="gaaTil('skilte')">Lav et nyt skilt</button></td></tr>`
       : rows.map(r => {
@@ -207,10 +232,10 @@ async function hentSkilteKoe() {
             <td data-label="Tekst"><b>${esc(tekst || r.navn)}</b></td>
             <td class="m-skjul" data-label="Størrelse">${r.skilt_bredde_mm}×${r.skilt_hoejde_mm} mm</td>
             <td data-label="Maskine">${esc(r.maskine_navn)}</td>
-            <td data-label="Status">${statusBadge(r.status, r.fejl_besked)}</td>
+            <td data-label="Status">${statusBadge(r.status, r.fejl_besked, r.fejl_kode)}</td>
             <td data-label="Oprettet">${relTid(r.oprettet)}</td>
             <td class="act">
-              ${r.status === 'fejl' ? `<button class="btn btn-secondary btn-sm" onclick="gentagSkilt(${r.id})">↻ Gentag</button>` : ''}
+              ${r.status === 'fejl' ? `<button class="btn btn-secondary btn-sm" onclick="gentagSkilt(${r.id}, '${esc(r.fejl_kode || '')}')">↻ Gentag</button>` : ''}
               <button class="btn btn-ghost btn-sm" onclick="skilteLavIgen(${r.id})" title="Åbn med samme tekst og layout i Nyt skilt">⎘ Lav igen</button>
               ${r.status === 'pending' ? `<button class="btn btn-danger btn-sm" onclick="annullerSkilt(${r.id})">Annuller</button>` : ''}
             </td></tr>`;
@@ -223,6 +248,7 @@ async function hentBatches() {
   const tbody = $('batch-tabel');
   try {
     const rows = await api('/api/batches');
+    visGentagForbindelse(rows, 'gentag-forb-noegler');
     tbody.innerHTML = rows.length === 0
       ? `<tr><td colspan="10" class="tomt"><span class="stor">🔑</span>Ingen nøgle-jobs i køen.<br><button class="btn btn-secondary btn-sm mt" onclick="gaaTil('nyt-job')">Opret et nøgle-job</button></td></tr>`
       : rows.map(r => `<tr>
@@ -233,11 +259,11 @@ async function hentBatches() {
           <td class="m-skjul" data-label="Markering">${esc(r.type_felt) || '—'}</td>
           <td class="m-skjul" data-label="System">${esc(r.system_nr) || '—'}</td>
           <td data-label="Løbenr">${r.loebe_fra}–${r.loebe_til}</td>
-          <td data-label="Status">${statusBadge(r.status, r.fejl_besked)}</td>
+          <td data-label="Status">${statusBadge(r.status, r.fejl_besked, r.fejl_kode)}</td>
           <td data-label="Oprettet">${relTid(r.oprettet)}</td>
           <td class="act">
             ${r.status === 'on-hold' ? `<button class="btn btn-primary btn-sm" onclick="frigiv(${r.id})">▶ Frigiv</button>` : ''}
-            ${r.status === 'fejl' ? `<button class="btn btn-secondary btn-sm" onclick="gentagBatch(${r.id})">↻ Gentag</button>` : ''}
+            ${r.status === 'fejl' ? `<button class="btn btn-secondary btn-sm" onclick="gentagBatch(${r.id}, '${esc(r.fejl_kode || '')}')">↻ Gentag</button>` : ''}
             ${r.status === 'pending' || r.status === 'on-hold' ? `<button class="btn btn-danger btn-sm" onclick="annuller(${r.id})">Annuller</button>` : ''}
           </td></tr>`).join('');
     koeOpdateret();
@@ -254,14 +280,15 @@ async function annullerAlle() {
 }
 
 const GENTAG_ADVARSEL = 'Send programmet til maskinen igen?\n\nHar maskinen allerede nået at gravere noget af dette job, bliver det graveret to gange. Tjek emnerne først.';
-async function gentagBatch(id) {
-  if (!confirm(GENTAG_ADVARSEL)) return;
+// Fejlede jobbet fordi maskinen ikke kunne nås, er intet sendt → ingen risiko for dobbelt gravering, så ingen advarsel.
+async function gentagBatch(id, kode) {
+  if (kode !== 'forbindelse' && !confirm(GENTAG_ADVARSEL)) return;
   const r = await api(`/api/batches/${id}/gentag`, 'POST');
   toast(r.ok ? 'Sat tilbage i køen' : 'Kunne ikke gentage jobbet', r.ok ? 'ok' : 'fejl');
   hentBatches();
 }
-async function gentagSkilt(id) {
-  if (!confirm(GENTAG_ADVARSEL)) return;
+async function gentagSkilt(id, kode) {
+  if (kode !== 'forbindelse' && !confirm(GENTAG_ADVARSEL)) return;
   const r = await api(`/api/skilte/${id}/gentag`, 'POST');
   toast(r.ok ? 'Sat tilbage i køen' : 'Kunne ikke gentage skiltet', r.ok ? 'ok' : 'fejl');
   hentSkilteKoe();

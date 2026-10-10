@@ -80,7 +80,11 @@ async function testMaskine() {
   const status = document.getElementById('k-status');
   status.textContent = '⏳ Sender test-kommando...';
   status.style.color = 'var(--text-secondary)';
-  const res = await api(`/api/maskiner/${id}/test`, 'POST');
+  let res = await api(`/api/maskiner/${id}/test`, 'POST');
+  if (res.kraever_bekraeftelse) {            // maskinen har lige fået et program og graverer formentlig stadig
+    if (!confirm(res.fejl)) { status.textContent = ''; return; }
+    res = await api(`/api/maskiner/${id}/test`, 'POST', { tving: true });
+  }
   if (res.ok) {
     status.textContent = '✓ Maskinen kører til kalibreret position (0,0) med Z oppe';
     status.style.color = '#27ae60';
@@ -95,18 +99,53 @@ async function testMaskine() {
 async function hentMaskiner() {
   const rows = await api('/api/maskiner');
   document.getElementById('maskiner-tabel').innerHTML = rows.length === 0
-    ? `<tr><td colspan="11" class="tomt"><span class="stor">⚙</span>Ingen maskiner endnu.<br><button class="btn btn-secondary btn-sm mt" onclick="visNyMaskine()">+ Tilføj den første maskine</button></td></tr>`
+    ? `<tr><td colspan="12" class="tomt"><span class="stor">⚙</span>Ingen maskiner endnu.<br><button class="btn btn-secondary btn-sm mt" onclick="visNyMaskine()">+ Tilføj den første maskine</button></td></tr>`
     : rows.map(r => `<tr>
     <td data-label="ID">#${r.id}</td><td data-label="Navn"><b>${esc(r.navn)}</b></td><td data-label="Model">${esc(r.model)}</td>
     <td data-label="Protokol">${esc(r.protokol)}</td><td data-label="IP">${esc(r.ip)}</td><td data-label="Port">${r.port}</td>
+    <td data-label="Forbindelse" id="ms-${r.id}"><span class="ms ukendt"><span class="dot"></span>Tjekker…</span></td>
     <td data-label="Offset X">${r.offset_x || 0} mm</td><td data-label="Offset Y">${r.offset_y || 0} mm</td><td data-label="Offset Z">${r.offset_z || 0} mm</td>
     <td data-label="Spejl Y">${r.spejl_y ? '✓' : '—'}</td>
     <td class="act">
+      <button class="btn btn-secondary btn-sm" onclick="pingMaskine(${r.id})" title="Opretter og lukker en forbindelse — sender ingen data">Tjek nu</button>
       <button class="btn btn-secondary btn-sm" onclick="redigerMaskine(${r.id})">Rediger</button>
       <button class="btn btn-secondary btn-sm" onclick="redigerKalibrering(${r.id})">Kalibrér</button>
       <button class="btn btn-danger btn-sm" onclick="sletMaskine(${r.id})">Slet</button>
     </td>
   </tr>`).join('');
+  hentMaskinStatus();
+}
+
+const MS_TEKST = { online: 'Online', offline: 'Svarer ikke', afviser: 'Afviser forbindelsen', ukendt: 'Ikke tjekket endnu' };
+async function hentMaskinStatus() {
+  let liste;
+  try { liste = await api('/api/maskiner/status'); } catch (e) { return; }
+  liste.forEach(m => {
+    const el = document.getElementById('ms-' + m.id);
+    if (!el) return;
+    maskinStatus[m.id] = m.status;
+    let sub = '';
+    if (m.koe && m.koe.running) sub = 'Sender nu';
+    else if (m.graverer_formentlig) sub = `Program sendt for ${sekTekst(m.sendt_sek_siden)} — graverer formentlig (tjekker ikke forbindelsen imens)`;
+    else if (m.status === 'online') sub = `svarede ${sekTekst(m.tjekket_sek_siden)}${m.ms != null ? ' · ' + m.ms + ' ms' : ''}`;
+    else if (m.status === 'ukendt') sub = 'Første tjek kommer om lidt';
+    else sub = `${esc(m.fejl || '')}${m.set_online_sek_siden != null ? ' · sidst online ' + sekTekst(m.set_online_sek_siden) : ''}`;
+    if (m.koe && m.koe.pending) sub += `${sub ? ' · ' : ''}${m.koe.pending} i kø`;
+    el.innerHTML = `<span class="ms ${esc(m.status)}"><span class="dot"></span>${esc(MS_TEKST[m.status] || m.status)}</span><span class="ms-sub">${sub}</span>`;
+  });
+  opdaterMaskineAdvarsler();
+}
+
+async function pingMaskine(id) {
+  const el = document.getElementById('ms-' + id);
+  if (el) el.innerHTML = '<span class="ms ukendt"><span class="dot"></span>Tjekker…</span>';
+  try {
+    const r = await api(`/api/maskiner/${id}/ping`, 'POST');
+    if (r.status === 'online') toast(`Maskinen svarer (${r.ms} ms)`, 'ok');
+    else if (r.status === 'optaget') toast(r.besked, 'info');
+    else toast(r.fejl || 'Maskinen svarer ikke', 'fejl');
+  } catch (e) { toast('Kunne ikke tjekke maskinen', 'fejl'); }
+  hentMaskinStatus();
 }
 
 function visNyMaskine() {
