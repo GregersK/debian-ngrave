@@ -174,12 +174,47 @@
   </div>
 </div>
 
+<!-- MATERIALER (nøgler) -->
+<div id="panel-materialer" class="panel">
+  <div class="kort">
+    <h2>Materialer <span class="sub">hastighed, dybde og fræser pr. materiale</span></h2>
+    <p class="small muted" style="margin-bottom:10px;">En nøgle-template peger på et materiale (fx Messing eller Akryl/plast). Retter du et materiale, gælder det alle templates der bruger det. Templates uden materiale bruger deres egne værdier som før.</p>
+    <table class="resp">
+      <thead><tr><th>Navn</th><th>Feed XY / Z</th><th>rpm</th><th>Z-løft</th><th>Mellem bogst.</th><th>Prox</th><th>Fræser</th><th>Templates</th><th></th></tr></thead>
+      <tbody id="materiale-tabel"></tbody>
+    </table>
+    <div class="mt"><button class="btn btn-secondary" onclick="visNytMateriale()">+ Nyt materiale</button></div>
+  </div>
+
+  <div class="kort" id="materiale-form" style="display:none;">
+    <h2 id="materiale-form-titel">Nyt materiale</h2>
+    <input type="hidden" id="mat-id">
+    <div class="form-grid">
+      <div><label for="mat-navn">Navn</label><input id="mat-navn" placeholder="Akryl/plast"></div>
+      <div class="span-hele"><label for="mat-beskrivelse">Beskrivelse</label><input id="mat-beskrivelse" placeholder="Fx røde nøglebrikker, 2 mm akryl"></div>
+      <div><label for="mat-fxy">Feed XY (in/min)</label><input id="mat-fxy" type="number" min="1" placeholder="12"></div>
+      <div><label for="mat-fz">Feed Z (in/min)</label><input id="mat-fz" type="number" min="1" placeholder="40"></div>
+      <div><label for="mat-rpm">Spindel rpm</label><input id="mat-rpm" type="number" min="0" step="500" placeholder="16000"></div>
+      <div><label for="mat-zop">Z-løft mellem nøgler (mm)</label><input id="mat-zop" type="number" step="0.1" min="0.5" placeholder="5"></div>
+      <div><label for="mat-zinde">Løft mellem bogstaver (mm)</label><input id="mat-zinde" type="number" step="0.1" min="1.5" placeholder="= Z-løft"></div>
+      <div><label for="mat-prox">Prox offset / dybde (mm)</label><input id="mat-prox" type="number" step="0.1" placeholder="1.5"></div>
+      <div><label for="mat-fraeser">Fræser</label><input id="mat-fraeser" placeholder="V-fræser 30°, 0,2 mm spids"></div>
+      <div><label for="mat-bredde">Stregbredde på emnet (mm)</label><input id="mat-bredde" type="number" step="0.05" min="0.02" placeholder="0.3"></div>
+    </div>
+    <p class="small muted" style="margin-top:8px;"><b>Løft mellem bogstaver:</b> hvor højt fræseren løftes mellem stregerne på samme nøgle (fuldt Z-løft bruges altid mellem nøglerne). Nøglehovedets ramme kan være 0,8–1,0 mm høj, så mindst 1,5 mm — 2 mm anbefales. Tom = som før (fuldt løft overalt). Gælder G-code-maskiner (S5).</p>
+    <div class="mt gap">
+      <button class="btn btn-primary" onclick="gemMateriale()">Gem</button>
+      <button class="btn btn-secondary" onclick="$('materiale-form').style.display='none'">Annuller</button>
+    </div>
+  </div>
+</div>
+
 <!-- NØGLE-TEMPLATES -->
 <div id="panel-templates" class="panel">
   <div class="kort">
     <h2>Nøgle-templates</h2>
     <table class="resp">
-      <thead><tr><th>ID</th><th>Navn</th><th>Nøgletype</th><th>Zone B×H</th><th>Slots</th><th></th></tr></thead>
+      <thead><tr><th>ID</th><th>Navn</th><th>Nøgletype</th><th>Zone B×H</th><th>Materiale</th><th>Slots</th><th></th></tr></thead>
       <tbody id="template-tabel"></tbody>
     </table>
     <div class="mt">
@@ -205,11 +240,18 @@
         <div><label>Zone bredde (mm)</label><input id="t-bredde" type="number" value="18" step="0.1"></div>
         <div><label>Zone højde (mm)</label><input id="t-hoejde" type="number" value="8" step="0.1"></div>
         <div><label>Tekst højde (mm)</label><input id="t-th" type="number" value="3.5" step="0.1"></div>
+        <div class="span-hele">
+          <label for="t-materiale">Materiale</label>
+          <select id="t-materiale" onchange="anvendMateriale(); opdaterPreview()"><option value="">Egne værdier (herunder)</option></select>
+          <p class="small muted" id="t-materiale-info" style="margin-top:4px;">Vælg et materiale for at bruge dets hastighed, dybde og fræser — rettes et materiale, gælder det alle templates der bruger det.</p>
+        </div>
         <div><label>Feed XY (in/min)</label><input id="t-fxy" type="number" value="12"></div>
         <div><label>Feed Z (in/min)</label><input id="t-fz" type="number" value="40"></div>
         <div><label>Spindle RPM</label><input id="t-rpm" type="number" value="16000"></div>
         <div><label>Z løft (mm)</label><input id="t-zop" type="number" value="5" step="0.1"></div>
         <div><label>Prox offset (mm)</label><input id="t-prox" type="number" value="1.5" step="0.1"></div>
+        <div><label title="Løft mellem bogstaverne på samme nøgle. Tom = samme som Z løft (som før). Fuldt Z løft bruges altid mellem nøglerne.">Løft mellem bogstaver (mm)</label><input id="t-zinde" type="number" step="0.1" min="1.5" placeholder="= Z løft"></div>
+        <div><label title="Fræserens stregbredde på emnet — bruges i forhåndsvisningen">Fræser stregbredde (mm)</label><input id="t-fraeser" type="number" step="0.05" min="0.02" placeholder="ukendt" oninput="opdaterPreview()"></div>
         <div><label>Standard maskine</label><select id="t-maskine"><option value="">Valgfri</option></select></div>
       </div>
       <label class="chk-linje" style="display:flex;gap:8px;align-items:flex-start;margin-top:14px;">

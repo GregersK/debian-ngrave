@@ -82,6 +82,8 @@ a { color: var(--info); }
 .kort h2 .sub { margin-left: auto; font-size: .78rem; font-weight: 400; color: var(--text-secondary); }
 .kort > h2:only-child { margin-bottom: 0; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.form-grid .span-hele { grid-column: 1 / -1; }
+.form-grid input:disabled { opacity: .7; cursor: not-allowed; }
 .form-section { margin-bottom: 22px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
 .form-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
 .form-section h3 { font-size: .78rem; color: var(--text-secondary); margin-bottom: 10px; text-transform: uppercase; letter-spacing: .6px; }

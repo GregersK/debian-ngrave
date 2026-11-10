@@ -10,14 +10,25 @@ def xi(v): return round(v * MM, 4)
 def yi(v): return round(-v * MM, 4)
 def zi(v): return round(-v * MM, 4)
 
-def streger_til_gcode(strokes, x_offset, y, feed, feed_z, z_up, prox_offset):
-    """Genererer G-code med prox og relativ Z-løft."""
+# Nøglehovedets ramme kan være 0,8–1,0 mm høj: et lavt løft mellem bogstaverne
+# må aldrig blive lavere end dette, uanset hvad der står i en template/import.
+MIN_LOEFT_INDE_MM = 1.5
+
+
+def streger_til_gcode(strokes, x_offset, y, feed, feed_z, z_up, prox_offset, z_up_sidste=None):
+    """Genererer G-code med prox og relativ Z-løft.
+
+    z_up_sidste: løft efter den SIDSTE streg (fx fuldt løft før kørsel til næste
+    nøgle, når z_up er det lave løft mellem bogstaver). None = z_up overalt."""
     lines = []
     z_up_rel = round(z_up * MM, 4)
     z_prox_off = round(prox_offset * MM, 4)
+    sidste_i = max((i for i, s in enumerate(strokes) if s), default=-1)
 
-    for stroke in strokes:
+    for n, stroke in enumerate(strokes):
         if not stroke: continue
+        if z_up_sidste is not None and n == sidste_i:
+            z_up_rel = round(z_up_sidste * MM, 4)
         for i, (sx, sy) in enumerate(stroke):
             gx = round(xi(x_offset + sx), 4)
             gy = round(yi(y) + sy * MM, 4)
@@ -105,6 +116,14 @@ def byg_batch(jobs, tmpl):
     ox  = float(tmpl.get('offset_x') or 0)
     oy  = float(tmpl.get('offset_y') or 0)
     oz  = float(tmpl.get('offset_z') or 0)
+    # Lavt løft mellem bogstaverne på samme nøgle (valgfrit). Fuldt løft (zo)
+    # efter nøglens sidste streg, så kørslen til næste nøgle er som før.
+    inde = tmpl.get('z_loeft_inde_mm')
+    inde = float(inde) if inde not in (None, '') and float(inde) > 0 else None
+    if inde is not None:
+        inde = max(inde, MIN_LOEFT_INDE_MM) + oz
+        if inde >= zo:
+            inde = None
     zo  += oz
     niveau = tmpl.get('optimering', 'ingen')
 
@@ -113,9 +132,16 @@ def byg_batch(jobs, tmpl):
     for job in jobs:
         sx = job['slot_x_mm'] + ox
         sy = job['slot_y_mm'] + oy
-        for felt in felt_layout(job, tmpl, sx, sy):
-            lines += streger_til_gcode(optimer(felt['strokes'], niveau), felt['x'], felt['y'],
-                                       f, fz, zo, po)
+        felter = felt_layout(job, tmpl, sx, sy)
+        # sidste felt der faktisk har streger — efter dets sidste streg løftes fuldt
+        sidste_k = max((k for k, ft in enumerate(felter) if any(ft['strokes'])), default=-1)
+        for k, felt in enumerate(felter):
+            strokes = optimer(felt['strokes'], niveau)
+            if inde is None:
+                lines += streger_til_gcode(strokes, felt['x'], felt['y'], f, fz, zo, po)
+            else:
+                lines += streger_til_gcode(strokes, felt['x'], felt['y'], f, fz, inde, po,
+                                           z_up_sidste=zo if k == sidste_k else None)
 
     lines += ["G4 P0","M5","M9","M11","M246","G28 Z0","G0 X0 Y0","M30"]
     return "\n".join(lines) + "\n"

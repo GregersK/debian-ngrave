@@ -13,6 +13,8 @@ Webbaseret system til nøgle- og skiltegravering med live jobkø, batch-håndter
 - On-hold workflow — næste plade frigives manuelt
 - Dynamiske felter per template (op til 4): Markering, System nr, Løbenr (auto), Ekstra
 - Per-felt skrifttype, tekststørrelse, bogstavafstand, X/Y placering og justering
+- Materialer (fx Messing, Akryl/plast): hastighed, rpm, dybde og fræser ét sted — templates peger på et materiale
+- Lavt løft mellem bogstaverne på samme nøgle (fuldt løft mellem nøgler) — kortere tid pr. nøgle
 - Forhåndsvisning med de rigtige gravér-streger + advarsel hvis en tekst ikke passer i zonen (også før en ordre oprettes)
 - Grid-editor med auto-udfyld (start X/Y + afstand)
 - Maskin-kalibrering (global X/Y/Z offset per maskine)
@@ -179,6 +181,11 @@ Single-stroke font håndkodet i `block_font.py` med fuld dansk tegnsæt (ÆØÅ/
 - **Bogstavafstand** (mm, negativ = tættere) pr. linje på skilte og pr. felt på nøgler. Relief SingleLine bruger desuden fontens egen kerning.
 - **Kompatibilitet**: `tests/golden_v61.json` indeholder fingeraftryk af G-code/CIPHER fra før omskrivningen; testene kræver byte-identisk output for eksisterende templates.
 
+### Materialer og løft (nøgler)
+`materialer`-tabellen samler feed XY/Z, spindel-rpm, Z-løft, *løft mellem bogstaver*, prox/dybde, fræser og fræserens stregbredde. `templates.materiale_id` peger på et materiale (NULL = templatens egne værdier, som før v6.2); ved gravering, forhåndsvisning og ordre-tjek erstatter materialets værdier templatens (`_med_materiale` i `app.py`).
+
+*Løft mellem bogstaver* (`z_loeft_inde_mm`): inden for én nøgle løftes kun så meget; efter nøglens sidste streg løftes det fulde Z-løft før kørslen til næste nøgle. Minimum 1,5 mm (nøglehovedets ramme kan være op til 1 mm høj) håndhæves både ved gem og i G-code-generatoren. Gælder S5 (G-code); CIPHER (S3) bruger kun materialets feed.
+
 ### Hastighed (penneløft)
 Hver streg koster et løft + prox-nedkørsel. Pr. maskine (under *Maskiner → Rediger*):
 
@@ -256,6 +263,8 @@ Indstillinger (valgfrie, i `/etc/ngrave/ngrave.env`):
 | GET | `/api/fonts/prove?tekst=` | Prøvetekst i alle skrifttyper (streger + penneløft) |
 | POST | `/api/templates/preview` | Nøgle-template med eksempeltekst: streger, fejl/advarsler, penneløft |
 | POST | `/api/batches/tjek` | Passer ordrens tekster i zonen? (opretter intet) |
+| GET/POST | `/api/materialer` | Materialer (hastighed, dybde, fræser) |
+| PUT/DELETE | `/api/materialer/<id>` | Ret / slet materiale (slet spærret hvis i brug) |
 | GET | `/api/templates` | Liste nøgle-templates |
 | POST | `/api/templates` | Opret template |
 | PUT | `/api/templates/<id>` | Opdater template |

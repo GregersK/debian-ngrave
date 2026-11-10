@@ -1,6 +1,7 @@
 // ─── State ────────────────────────────────────────────────────────────────────
 let maskiner = [], templates = [], skiltTemplates = [], fonts = {};
 let fontsInfo = { fonte: [], navne: {} };   // alle fonte inkl. skjulte/gamle id'er
+let materialer = [];                          // materiale-profiler (messing, plast …)
 let redigerTemplateId = null, redigerSkiltTemplateId = null;
 let gridSlots = [];
 let currentTab = 't-basis';
@@ -12,6 +13,10 @@ async function initDropdowns() {
   skiltTemplates = await api('/api/skilt-templates');
   fonts = await api('/api/fonts');
   try { fontsInfo = await api('/api/fonts/info'); } catch (e) { /* ældre server: kun navne */ }
+  try { materialer = await api('/api/materialer'); } catch (e) { materialer = []; }
+  const tmat = $('t-materiale');
+  if (tmat) tmat.innerHTML = '<option value="">Egne værdier (herunder)</option>' +
+    materialer.map((m) => `<option value="${m.id}">${esc(m.navn)}</option>`).join('');
 
   const jtempl = document.getElementById('job-template');
   jtempl.innerHTML = templates.map(t => `<option value="${t.id}" data-maskine="${t.maskine_id||''}">${esc(t.navn)}</option>`).join('');
@@ -74,6 +79,30 @@ function saetFontValg(id, v) {
   }
   el.value = v;
 }
+// Materiale valgt → dets værdier vises (låst) i templatens felter.
+const MAT_FELTER = [['t-fxy', 'feed_xy'], ['t-fz', 'feed_z'], ['t-rpm', 'spindle_rpm'], ['t-zop', 'z_op_mm'],
+                    ['t-prox', 'prox_offset_mm'], ['t-zinde', 'z_loeft_inde_mm'], ['t-fraeser', 'fraeser_bredde_mm']];
+function anvendMateriale() {
+  const sel = $('t-materiale');
+  if (!sel) return;
+  const m = materialer.find((x) => String(x.id) === sel.value);
+  MAT_FELTER.forEach(([id, k]) => { const e = $(id); if (!e) return; if (m) e.value = m[k] ?? ''; e.disabled = !!m; });
+  $('t-materiale-info').textContent = m
+    ? `${m.navn}${m.fraeser ? ' · ' + m.fraeser : ''} — hastighed, dybde og fræser kommer fra materialet (ret dem under Nøgler → Materialer).`
+    : 'Templaten bruger sine egne værdier herunder. Vælg et materiale for at bruge dets hastighed, dybde og fræser.';
+}
+function saetMateriale(id) {
+  const sel = $('t-materiale');
+  if (!sel) return;
+  const v = id == null ? '' : String(id);
+  if (v && ![...sel.options].some((o) => o.value === v)) {
+    sel.insertAdjacentHTML('beforeend', `<option value="${esc(v)}">Materiale #${esc(v)} (findes ikke længere)</option>`);
+  }
+  sel.value = v;
+  anvendMateriale();
+}
+function talEllerTom(id) { const e = $(id); return e && e.value !== '' && !isNaN(+e.value) ? +e.value : null; }
+
 function fontVisningsnavn(k) { return (fontsInfo.navne && fontsInfo.navne[k]) || (fonts && fonts[k]) || k || 'Block'; }
 
 // ─── Nyt nøgle-job ────────────────────────────────────────────────────────────
@@ -342,7 +371,7 @@ async function hentTemplates() {
   const rows = await api('/api/templates');
   templates = rows; // opdater state så redigerTemplate kan finde dem
   document.getElementById('template-tabel').innerHTML = rows.length === 0
-    ? `<tr><td colspan="6" class="tomt">Ingen nøgle-templates endnu.</td></tr>`
+    ? `<tr><td colspan="7" class="tomt">Ingen nøgle-templates endnu.</td></tr>`
     : rows.map(r => {
     let slots = 0;
     try { const g = JSON.parse(r.grid_json); slots = g.slots ? g.slots.length : 0; } catch (e) {}
@@ -351,6 +380,7 @@ async function hentTemplates() {
       <td data-label="Navn"><span class="clickable" onclick="redigerTemplate(${r.id})">${esc(r.navn)}</span></td>
       <td data-label="Nøgletype">${esc(r.noejle_type)}</td>
       <td data-label="Zone">${r.zone_bredde_mm}×${r.zone_hoejde_mm} mm</td>
+      <td data-label="Materiale">${esc((materialer.find((m) => m.id === r.materiale_id) || {}).navn || (r.materiale_id ? '?' : 'Egne værdier'))}</td>
       <td data-label="Slots">${slots} slots</td>
       <td class="act">
         <button class="btn btn-secondary btn-sm" onclick="redigerTemplate(${r.id})">Rediger</button>
@@ -377,6 +407,8 @@ function visNyTemplate() {
   document.getElementById('t-zop').value = '5';
   document.getElementById('t-prox').value = '1.5';
   document.getElementById('t-dansk').checked = true;           // nye templates: ægte ÆØÅ
+  $('t-zinde').value = ''; $('t-fraeser').value = '';
+  saetMateriale(materialer.length ? materialer[0].id : null);   // nye templates: første materiale
   ['t-mark-afst', 't-sys-afst', 't-loebe-afst', 't-ekstra-afst'].forEach((id) => { $(id).value = '0'; });
   
   document.getElementById('t-maskine').value = '';
@@ -446,6 +478,8 @@ async function redigerTemplate(id) {
   document.getElementById('t-zop').value = tmpl.z_op_mm;
   document.getElementById('t-prox').value = tmpl.prox_offset_mm || 1.5;
   document.getElementById('t-dansk').checked = !!tmpl.dansk_tegn;
+  $('t-zinde').value = tmpl.z_loeft_inde_mm ?? ''; $('t-fraeser').value = tmpl.fraeser_bredde_mm ?? '';
+  saetMateriale(tmpl.materiale_id);
   $('t-mark-afst').value = tmpl.markering_bogstav_afstand_mm || 0;
   $('t-sys-afst').value = tmpl.system_bogstav_afstand_mm || 0;
   $('t-loebe-afst').value = tmpl.loebe_bogstav_afstand_mm || 0;
@@ -568,6 +602,9 @@ function templateFormData() {
     prox_offset_mm: n('t-prox', 1.5),
     font: 'block',
     dansk_tegn: chk('t-dansk', 1),
+    materiale_id: v('t-materiale', '') || null,
+    z_loeft_inde_mm: talEllerTom('t-zinde'),
+    fraeser_bredde_mm: talEllerTom('t-fraeser'),
     maskine_id: v('t-maskine', '') || null,
     markering_aktiv: chk('t-mark-aktiv', 1),
     markering_navn: v('t-mark-navn', 'Markering'),
@@ -666,6 +703,8 @@ async function kopierTemplate(id) {
   document.getElementById('t-zop').value = tmpl.z_op_mm;
   document.getElementById('t-prox').value = tmpl.prox_offset_mm || 1.5;
   document.getElementById('t-dansk').checked = !!tmpl.dansk_tegn;
+  $('t-zinde').value = tmpl.z_loeft_inde_mm ?? ''; $('t-fraeser').value = tmpl.fraeser_bredde_mm ?? '';
+  saetMateriale(tmpl.materiale_id);
   $('t-mark-afst').value = tmpl.markering_bogstav_afstand_mm || 0;
   $('t-sys-afst').value = tmpl.system_bogstav_afstand_mm || 0;
   $('t-loebe-afst').value = tmpl.loebe_bogstav_afstand_mm || 0;

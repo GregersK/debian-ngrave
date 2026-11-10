@@ -84,6 +84,12 @@ CREATE TABLE IF NOT EXISTS templates (
     ekstra_position               INTEGER NOT NULL DEFAULT 4,
     -- 1 = ægte ÆØÅ i Hershey-fonte, 0 = AE/OE/AA som før v6.2 (eksisterende templates)
     dansk_tegn                    INTEGER NOT NULL DEFAULT 0,
+    -- Materiale-profil (NULL = templatens egne feed/rpm/Z-værdier herover)
+    materiale_id                  INTEGER,
+    -- Løft mellem bogstaver på samme nøgle (NULL = samme som z_op_mm, som før v6.2)
+    z_loeft_inde_mm               REAL,
+    -- Fræserens stregbredde på emnet (kun til forhåndsvisning)
+    fraeser_bredde_mm             REAL,
     grid_json            TEXT NOT NULL,
     maskine_id           INTEGER REFERENCES maskiner(id),
     aktiv                INTEGER DEFAULT 1,
@@ -169,3 +175,21 @@ CREATE TABLE IF NOT EXISTS skilte_jobs (
 
 -- Seed-rows oprettes i app.py:seed_defaults() efter migrate_db, så de
 -- kan referere kolonner der er tilføjet via migrations.
+
+-- Materiale-profiler til nøgler (messing, akryl/plast …): hastighed, dybde og
+-- fræser samlet ét sted, så en template bare peger på et materiale.
+CREATE TABLE IF NOT EXISTS materialer (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    navn              TEXT NOT NULL,
+    beskrivelse       TEXT NOT NULL DEFAULT '',
+    feed_xy           INTEGER NOT NULL,          -- in/min
+    feed_z            INTEGER NOT NULL,          -- in/min
+    spindle_rpm       INTEGER NOT NULL,
+    z_op_mm           REAL NOT NULL,             -- løft mellem nøgler
+    z_loeft_inde_mm   REAL,                      -- løft mellem bogstaver (NULL = som z_op_mm)
+    prox_offset_mm    REAL NOT NULL,
+    fraeser           TEXT NOT NULL DEFAULT '',  -- fx "V-fræser 30°, 0,2 mm spids"
+    fraeser_bredde_mm REAL,                      -- stregbredde på emnet (preview)
+    aktiv             INTEGER DEFAULT 1,
+    oprettet          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

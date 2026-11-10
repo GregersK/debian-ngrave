@@ -99,6 +99,18 @@ def seed_defaults():
                       0.0, 0.0, 'hoejre',
                       NULL, ?)
         """, (default_grid,))
+        # Materiale-profil "Messing" ud fra de værdier templates oftest bruger i dag.
+        # Kun første gang (id=1); templates kobles IKKE automatisk på — de bruger
+        # deres egne værdier, til nogen vælger et materiale.
+        if not db.execute("SELECT 1 FROM materialer WHERE id=1").fetchone():
+            r = db.execute("""SELECT feed_xy, feed_z, spindle_rpm, z_op_mm, prox_offset_mm, COUNT(*) n
+                              FROM templates WHERE aktiv=1
+                              GROUP BY feed_xy, feed_z, spindle_rpm, z_op_mm, prox_offset_mm
+                              ORDER BY n DESC LIMIT 1""").fetchone()
+            v = tuple(r[:5]) if r else (12, 40, 16000, 5.0, 1.5)
+            db.execute("""INSERT OR IGNORE INTO materialer
+                          (id, navn, beskrivelse, feed_xy, feed_z, spindle_rpm, z_op_mm, prox_offset_mm)
+                          VALUES (1, 'Messing', 'Oprettet ved opdatering til v6.2 ud fra de værdier templates brugte — tjek dem', ?,?,?,?,?)""", v)
         db.execute("""
             INSERT OR IGNORE INTO skilt_templates (
                 id, navn, beskrivelse, skilt_bredde_mm, skilt_hoejde_mm, antal_linjer, linjer_config, maskine_id
@@ -180,6 +192,10 @@ def migrate_db():
         # (dansk_tegn=0) så de graverer som før; nye templates får ægte ÆØÅ.
         ("maskiner",    "optimering",         "TEXT NOT NULL DEFAULT 'fuld'"),
         ("templates",   "dansk_tegn",         "INTEGER NOT NULL DEFAULT 0"),
+        # Materiale-profiler + lavt løft mellem bogstaver. NULL = som før v6.2.
+        ("templates",   "materiale_id",       "INTEGER"),
+        ("templates",   "z_loeft_inde_mm",    "REAL"),
+        ("templates",   "fraeser_bredde_mm",  "REAL"),
     ]
     with sqlite3.connect(DB) as db:
         for table, col, typedef in migrations:
@@ -310,6 +326,21 @@ def _send_med_retry(mid, send_fn, payload, ip, port, saet_note):
         if stop_event.wait(pause):
             raise ValueError("Afbrudt ved nedlukning")
 
+MATERIALE_FELTER = ('feed_xy', 'feed_z', 'spindle_rpm', 'z_op_mm', 'z_loeft_inde_mm',
+                    'prox_offset_mm', 'fraeser_bredde_mm')
+
+def _med_materiale(db, tmpl):
+    """Templatens værdier — med materiale-profilens hastighed/dybde/fræser hvis
+    templaten peger på et materiale (ellers templatens egne, som før v6.2)."""
+    mid = tmpl.get('materiale_id')
+    if mid not in (None, ''):
+        m = db.execute("SELECT * FROM materialer WHERE id=?", (mid,)).fetchone()
+        if m:
+            for k in MATERIALE_FELTER:
+                tmpl[k] = m[k]
+            tmpl['materiale_navn'] = m['navn']
+    return tmpl
+
 def _koer_naeste_batch(db, mid):
     """Sender maskinens ældste ventende nøgle-batch. Returnerer True hvis der var en."""
     row = db.execute("SELECT id FROM job_batches WHERE status='pending' AND maskine_id=? "
@@ -333,7 +364,7 @@ def _koer_naeste_batch(db, mid):
             raise ValueError("Templaten til dette job findes ikke længere")
         if not mask_row:
             raise ValueError("Maskinen til dette job findes ikke længere")
-        tmpl, maskine = dict(tmpl_row), dict(mask_row)
+        tmpl, maskine = _med_materiale(db, dict(tmpl_row)), dict(mask_row)
         jobs = [dict(j) for j in db.execute("SELECT * FROM jobs WHERE batch_id=? ORDER BY slot_nr ASC", (batch_id,))]
 
         tmpl['offset_x'] = maskine.get('offset_x', 0.0) or 0.0
@@ -577,6 +608,9 @@ def get_templates():
 def create_template():
     d = request.json or {}
     db = get_db()
+    ekstra, fejl = _template_ekstra(d, _tal(d.get('z_op_mm'), None))
+    if fejl:
+        return jsonify({'ok': False, 'fejl': '; '.join(fejl)}), 400
     try:
         cur = db.execute("""
             INSERT INTO templates (
@@ -609,6 +643,9 @@ def create_template():
               json.dumps(d.get('grid', {"kolonner":0,"raekker":0,"slots":[]})), d.get('maskine_id'),
               1 if d.get('dansk_tegn', 1) else 0,      # nye templates: ægte ÆØÅ
               *[float(d.get(f'{p}_bogstav_afstand_mm') or 0) for p in ('markering', 'system', 'loebe', 'ekstra')]))
+        if ekstra:
+            db.execute(f"UPDATE templates SET {','.join(k + '=?' for k in ekstra)} WHERE id=?",
+                       tuple(ekstra.values()) + (cur.lastrowid,))
         db.commit()
         return jsonify({'ok': True, 'id': cur.lastrowid})
     except Exception as e:
@@ -620,6 +657,9 @@ def create_template():
 def update_template(id):
     d = request.json or {}
     db = get_db()
+    ekstra, fejl = _template_ekstra(d, _tal(d.get('z_op_mm'), None))
+    if fejl:
+        return jsonify({'ok': False, 'fejl': '; '.join(fejl)}), 400
     try:
         db.execute("""
             UPDATE templates SET
@@ -659,6 +699,9 @@ def update_template(id):
               *[None if f'{p}_bogstav_afstand_mm' not in d else float(d[f'{p}_bogstav_afstand_mm'] or 0)
                 for p in ('markering', 'system', 'loebe', 'ekstra')],
               id))
+        if ekstra:      # kun de felter klienten sendte (ældre klienter rører dem ikke)
+            db.execute(f"UPDATE templates SET {','.join(k + '=?' for k in ekstra)} WHERE id=?",
+                       tuple(ekstra.values()) + (id,))
         db.commit()
         return jsonify({'ok': True})
     except Exception as e:
@@ -676,6 +719,122 @@ def delete_template(id):
         db.execute("DELETE FROM templates WHERE id=?", (id,))
     db.commit()
     return jsonify({'ok': True})
+
+# ─── Materialer (nøgler) ────────────────────────────────────────────────────
+MIN_LOEFT_INDE_MM = 1.5   # nøglehovedets ramme kan være 0,8–1,0 mm høj
+
+def _tal_felt(d, k, fejl, navn, typ=float, mn=None, mx=None, tom_ok=False):
+    v = d.get(k)
+    if v is None or v == '':
+        if not tom_ok:
+            fejl.append(f'{navn} mangler')
+        return None
+    try:
+        v = typ(float(v))
+    except (TypeError, ValueError):
+        fejl.append(f'{navn} skal være et tal')
+        return None
+    if (mn is not None and v < mn) or (mx is not None and v > mx):
+        fejl.append(f'{navn} skal være mellem {mn:g} og {mx:g}')
+    return v
+
+def _tjek_loeft_inde(inde, z_op, fejl):
+    if inde is None:
+        return
+    if inde < MIN_LOEFT_INDE_MM:
+        fejl.append(f'Løft mellem bogstaver skal være mindst {MIN_LOEFT_INDE_MM:g} mm '
+                    '(nøglehovedets ramme kan være op til 1 mm høj)')
+    elif z_op is not None and inde > z_op:
+        fejl.append('Løft mellem bogstaver må ikke være højere end Z-løft mellem nøgler')
+
+def _materiale_vaerdier(d):
+    fejl = []
+    navn = (d.get('navn') or '').strip()
+    if not navn:
+        fejl.append('Giv materialet et navn')
+    v = {
+        'navn': navn,
+        'beskrivelse': (d.get('beskrivelse') or '').strip(),
+        'feed_xy': _tal_felt(d, 'feed_xy', fejl, 'Feed XY', int, 1, 400),
+        'feed_z': _tal_felt(d, 'feed_z', fejl, 'Feed Z', int, 1, 400),
+        'spindle_rpm': _tal_felt(d, 'spindle_rpm', fejl, 'Spindel-rpm', int, 0, 60000),
+        'z_op_mm': _tal_felt(d, 'z_op_mm', fejl, 'Z-løft', float, 0.5, 50),
+        'z_loeft_inde_mm': _tal_felt(d, 'z_loeft_inde_mm', fejl, 'Løft mellem bogstaver', float, 0, 50, tom_ok=True),
+        'prox_offset_mm': _tal_felt(d, 'prox_offset_mm', fejl, 'Prox offset', float, -20, 20),
+        'fraeser': (d.get('fraeser') or '').strip(),
+        'fraeser_bredde_mm': _tal_felt(d, 'fraeser_bredde_mm', fejl, 'Fræserens stregbredde', float, 0.02, 5, tom_ok=True),
+    }
+    _tjek_loeft_inde(v['z_loeft_inde_mm'], v['z_op_mm'], fejl)
+    return v, fejl
+
+@app.route('/api/materialer')
+@require_auth
+def get_materialer():
+    db = get_db()
+    brug = {r[0]: r[1] for r in db.execute(
+        "SELECT materiale_id, COUNT(*) FROM templates WHERE aktiv=1 AND materiale_id IS NOT NULL GROUP BY materiale_id")}
+    return jsonify([{**dict(r), 'templates': brug.get(r['id'], 0)}
+                    for r in db.execute("SELECT * FROM materialer WHERE aktiv=1 ORDER BY navn")])
+
+@app.route('/api/materialer', methods=['POST'])
+@require_auth
+def create_materiale():
+    v, fejl = _materiale_vaerdier(request.json or {})
+    if fejl:
+        return jsonify({'ok': False, 'fejl': '; '.join(fejl)}), 400
+    db = get_db()
+    cur = db.execute(f"INSERT INTO materialer ({','.join(v)}) VALUES ({','.join('?' * len(v))})", tuple(v.values()))
+    db.commit()
+    return jsonify({'ok': True, 'id': cur.lastrowid})
+
+@app.route('/api/materialer/<int:id>', methods=['PUT'])
+@require_auth
+def update_materiale(id):
+    v, fejl = _materiale_vaerdier(request.json or {})
+    if fejl:
+        return jsonify({'ok': False, 'fejl': '; '.join(fejl)}), 400
+    db = get_db()
+    cur = db.execute(f"UPDATE materialer SET {','.join(k + '=?' for k in v)} WHERE id=? AND aktiv=1",
+                     tuple(v.values()) + (id,))
+    db.commit()
+    if cur.rowcount != 1:
+        return jsonify({'ok': False, 'fejl': 'Materialet findes ikke'}), 404
+    return jsonify({'ok': True})
+
+@app.route('/api/materialer/<int:id>', methods=['DELETE'])
+@require_auth
+def delete_materiale(id):
+    db = get_db()
+    n = db.execute("SELECT COUNT(*) FROM templates WHERE aktiv=1 AND materiale_id=?", (id,)).fetchone()[0]
+    if n:
+        return jsonify({'ok': False, 'fejl': f'{n} template(s) bruger materialet — vælg et andet materiale på dem først'}), 409
+    db.execute("UPDATE materialer SET aktiv=0 WHERE id=?", (id,))
+    db.commit()
+    return jsonify({'ok': True})
+
+def _template_ekstra(d, z_op):
+    """Materiale, løft mellem bogstaver og fræserbredde fra en template-request.
+    Returnerer ({kolonne: værdi} for de felter klienten sendte, fejl)."""
+    fejl, ud = [], {}
+    if 'materiale_id' in d:
+        mid = d.get('materiale_id')
+        if mid in (None, ''):
+            ud['materiale_id'] = None
+        else:
+            try:
+                mid = int(mid)
+            except (TypeError, ValueError):
+                mid = -1
+            if not get_db().execute("SELECT 1 FROM materialer WHERE id=? AND aktiv=1", (mid,)).fetchone():
+                fejl.append('Materialet findes ikke')
+            ud['materiale_id'] = mid
+    if 'z_loeft_inde_mm' in d:
+        ud['z_loeft_inde_mm'] = _tal_felt(d, 'z_loeft_inde_mm', fejl, 'Løft mellem bogstaver', float, 0, 50, tom_ok=True)
+        if not ud.get('materiale_id'):
+            _tjek_loeft_inde(ud['z_loeft_inde_mm'], z_op, fejl)
+    if 'fraeser_bredde_mm' in d:
+        ud['fraeser_bredde_mm'] = _tal_felt(d, 'fraeser_bredde_mm', fejl, 'Fræserens stregbredde', float, 0.02, 5, tom_ok=True)
+    return ud, fejl
 
 # Skilt-Templates
 @app.route('/api/skilt-templates')
@@ -1151,6 +1310,7 @@ def fonts_prove():
 
 # ─── Nøgler: forhåndsvisning og bredde-kontrol ─────────────────────────────
 NOEGLE_EPS = 0.05     # mm tolerance
+FRAESER_FAKTOR = 7    # teksthøjde under ~7 × fræserens stregbredde: bogstaverne lukker sig
 
 def _tal(v, standard=0.0):
     try:
@@ -1162,7 +1322,10 @@ def _tmpl_fra_form(d):
     """Template-felter fra nøgle-template-formularen (samme navne som DB-kolonnerne)."""
     t = {'zone_bredde_mm': _tal(d.get('zone_bredde_mm'), 18.0), 'zone_hoejde_mm': _tal(d.get('zone_hoejde_mm'), 8.0),
          'tekst_hoejde_mm': _tal(d.get('tekst_hoejde_mm'), 3.5) or 3.5, 'font': d.get('font') or 'block',
-         'dansk_tegn': 1 if d.get('dansk_tegn', 1) else 0}
+         'dansk_tegn': 1 if d.get('dansk_tegn', 1) else 0,
+         'materiale_id': d.get('materiale_id') or None,
+         'z_loeft_inde_mm': _tal(d.get('z_loeft_inde_mm'), None),
+         'fraeser_bredde_mm': _tal(d.get('fraeser_bredde_mm'), None)}
     for p, (dx, dy, jus, aktiv) in {'markering': (0, 0, 'venstre', 1), 'system': (0, 5, 'venstre', 1),
                                     'loebe': (0, 0, 'hoejre', 1), 'ekstra': (0, 10, 'venstre', 0)}.items():
         t[f'{p}_aktiv'] = 1 if d.get(f'{p}_aktiv', aktiv) else 0
@@ -1186,6 +1349,7 @@ def _noegle_layout(tmpl, job, niveau=None):
     from workers.font_manager import manglende_tegn
     zw, zh, th = tmpl['zone_bredde_mm'], tmpl['zone_hoejde_mm'], tmpl['tekst_hoejde_mm']
     top, bund = -th, zh - th
+    streg = _tal(tmpl.get('fraeser_bredde_mm'), None) or None
     felter, fejl, advarsler, lodret, alle = [], [], [], [], []
     for f in felt_layout(job, tmpl):
         paths = [[[round(f['x'] + x, 3), round(f['y'] - y, 3)] for x, y in st] for st in f['strokes'] if st]
@@ -1203,6 +1367,10 @@ def _noegle_layout(tmpl, job, niveau=None):
             if bbox[1] < top - NOEGLE_EPS or bbox[3] > bund + NOEGLE_EPS:
                 ud = max(top - bbox[1], bbox[3] - bund)
                 lodret.append(f"{navn} «{f['tekst']}» ligger {ud:.1f} mm uden for zonens højde — tjek Y")
+        if streg and f['hoejde_mm'] < FRAESER_FAKTOR * streg:
+            advarsler.append(f"{tmpl.get(f['felt'] + '_navn') or f['felt']}: {f['hoejde_mm']:g} mm tekst med "
+                             f"{streg:g} mm fræserstreg — små bogstaver kan flyde sammen "
+                             f"(anbefalet mindst {FRAESER_FAKTOR * streg:.1f} mm)")
         mangler = manglende_tegn(f['tekst'], f['font'])
         if mangler:
             advarsler.append(f"Tegn der springes over i {f['felt']}: {' '.join(mangler)}")
@@ -1211,14 +1379,15 @@ def _noegle_layout(tmpl, job, niveau=None):
                        'x': round(f['x'], 3), 'y': round(f['y'], 3), 'paths': paths, 'bbox': bbox})
     st = optimering.statistik(optimering.optimer(alle, optimering.niveau(niveau)))
     return {'ok': not fejl, 'fejl': fejl, 'advarsler': advarsler, 'lodret': lodret, 'felter': felter,
-            'zone': {'bredde': zw, 'hoejde': zh, 'top': top}, 'statistik': st}
+            'zone': {'bredde': zw, 'hoejde': zh, 'top': top}, 'statistik': st,
+            'stregbredde_mm': streg, 'materiale': tmpl.get('materiale_navn')}
 
 @app.route('/api/templates/preview', methods=['POST'])
 @require_auth
 def preview_template():
     """Forhåndsvisning af en nøgle-template med eksempeltekst — de rigtige gravér-streger."""
     d = request.json or {}
-    tmpl = _tmpl_fra_form(d)
+    tmpl = _med_materiale(get_db(), _tmpl_fra_form(d))
     for p in ('markering', 'system', 'loebe', 'ekstra'):
         tmpl[f'{p}_navn'] = d.get(f'{p}_navn') or p
     eks = d.get('eksempel') or {}
@@ -1258,7 +1427,7 @@ def tjek_batch():
         return jsonify({'ok': False, 'fejl': ['Vælg en template'], 'advarsler': []}), 400
     if not tmpl_row:
         return jsonify({'ok': False, 'fejl': ['Template findes ikke'], 'advarsler': []}), 404
-    tmpl = dict(tmpl_row)
+    tmpl = _med_materiale(get_db(), dict(tmpl_row))
     faste = {'type_felt': d.get('type_felt', '') if tmpl['markering_aktiv'] else '',
              'system_nr': d.get('system_nr', '') if tmpl['system_aktiv'] else '',
              'ekstra_tekst': d.get('ekstra_tekst', '') if tmpl['ekstra_aktiv'] else ''}
@@ -1306,7 +1475,11 @@ TEMPLATE_EXPORT_COLS = [
     'ekstra_aktiv', 'ekstra_navn', 'ekstra_x', 'ekstra_y',
     'ekstra_justering', 'ekstra_font', 'ekstra_hoejde_mm',
     'ekstra_bogstav_afstand_mm', 'ekstra_position',
-    'grid_json', 'dansk_tegn',
+    'grid_json', 'dansk_tegn', 'z_loeft_inde_mm', 'fraeser_bredde_mm',
+]
+MATERIALE_EXPORT_COLS = [
+    'navn', 'beskrivelse', 'feed_xy', 'feed_z', 'spindle_rpm', 'z_op_mm', 'z_loeft_inde_mm',
+    'prox_offset_mm', 'fraeser', 'fraeser_bredde_mm',
 ]
 SKILT_TEMPLATE_EXPORT_COLS = [
     'navn', 'beskrivelse', 'skilt_bredde_mm', 'skilt_hoejde_mm',
@@ -1326,9 +1499,19 @@ def export_templates():
             f"SELECT {','.join(cols)} FROM {table} WHERE aktiv=1 ORDER BY navn"
         ).fetchall()
         return [dict(r) for r in rows]
+    # Materialet gemmes med NAVN (id'er er lokale for hver installation)
+    mat = {r['id']: r['navn'] for r in db.execute("SELECT id, navn FROM materialer")}
+    templates = []
+    for r in db.execute(f"SELECT {','.join(TEMPLATE_EXPORT_COLS)}, materiale_id FROM templates "
+                        "WHERE aktiv=1 ORDER BY navn"):
+        t = dict(r)
+        mid = t.pop('materiale_id')
+        t['materiale'] = mat.get(mid) if mid else None
+        templates.append(t)
     return jsonify({
         'exported_at': datetime.now().isoformat(timespec='seconds'),
-        'templates': dump('templates', TEMPLATE_EXPORT_COLS),
+        'materialer': dump('materialer', MATERIALE_EXPORT_COLS),
+        'templates': templates,
         'skilt_templates': dump('skilt_templates', SKILT_TEMPLATE_EXPORT_COLS),
     })
 
@@ -1363,8 +1546,16 @@ def import_templates():
     d = request.json or {}
     db = get_db()
     try:
+        mat_res = _import_rows(db, 'materialer', MATERIALE_EXPORT_COLS, d.get('materialer') or [])
+        ids = {r['navn']: r['id'] for r in db.execute("SELECT id, navn FROM materialer WHERE aktiv=1")}
+        rows = []
+        for t in d.get('templates') or []:
+            if isinstance(t, dict) and 'materiale' in t:
+                t = {**t, 'materiale_id': ids.get(t['materiale']) if t['materiale'] else None}
+            rows.append(t)
         result = {
-            'templates': _import_rows(db, 'templates', TEMPLATE_EXPORT_COLS, d.get('templates') or []),
+            'materialer': mat_res,
+            'templates': _import_rows(db, 'templates', TEMPLATE_EXPORT_COLS + ['materiale_id'], rows),
             'skilt_templates': _import_rows(db, 'skilt_templates', SKILT_TEMPLATE_EXPORT_COLS, d.get('skilt_templates') or []),
         }
         db.commit()

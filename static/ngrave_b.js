@@ -24,10 +24,13 @@ const opdaterPreview = debounce(async () => {
   const navne = { markering: $('t-mark-navn').value, system: $('t-sys-navn').value, loebe: $('t-loebe-navn').value, ekstra: $('t-ekstra-navn').value };
   const fs = Math.max(0.9, z.hoejde * 0.09);
   let h = `<rect class="zone" x="0" y="${z.top}" width="${z.bredde}" height="${z.hoejde}" rx="0.4"/>`;
+  const streg = +lay.stregbredde_mm || 0;     // fræserens stregbredde i mm (0 = ukendt → tynd linje)
   lay.felter.forEach((f) => {
     const farve = FELT_FARVER[f.felt] || '#333';
     const d = f.paths.map((p) => 'M' + p.map((pt) => pt[0] + ' ' + pt[1]).join('L')).join('');
-    h += `<path d="${d}" fill="none" stroke="${farve}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
+    h += streg
+      ? `<path d="${d}" fill="none" stroke="${farve}" stroke-opacity=".85" stroke-width="${streg}" stroke-linecap="round" stroke-linejoin="round"/>`
+      : `<path d="${d}" fill="none" stroke="${farve}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
     if (f.bbox) h += `<text x="${f.bbox[0]}" y="${f.bbox[1] - 0.5}" font-size="${fs}" fill="${farve}" font-family="system-ui,sans-serif">${esc(navne[f.felt] || f.felt)}</text>`;
   });
   svg.innerHTML = h;
@@ -37,8 +40,82 @@ const opdaterPreview = debounce(async () => {
   else if (lay.advarsler.length) b.innerHTML = `<div class="banner advarsel"><b>Tjek lige</b><ul>${lay.advarsler.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>`;
   else b.innerHTML = lay.felter.length ? '<div class="banner ok">✓ Alle felter passer i zonen</div>' : '';
   const st = lay.statistik || {};
-  $('felt-preview-info').textContent = `Zone ${z.bredde} × ${z.hoejde} mm · pr. nøgle: ${st.loeft ?? 0} penneløft, ${Math.round(st.fraesevej_mm || 0)} mm fræsevej`;
+  $('felt-preview-info').textContent = `Zone ${z.bredde} × ${z.hoejde} mm` +
+    (lay.materiale ? ` · ${lay.materiale}` : '') +
+    (streg ? ` · stregerne vist i fræserens bredde (${String(streg).replace('.', ',')} mm)` : ' · fræserens stregbredde ukendt — tynde linjer') +
+    ` · pr. nøgle: ${st.loeft ?? 0} penneløft, ${Math.round(st.fraesevej_mm || 0)} mm fræsevej`;
 }, 150);
+
+// ─── Materialer (nøgler) ──────────────────────────────────────────────────────
+const MAT_FORM = [['mat-navn', 'navn'], ['mat-beskrivelse', 'beskrivelse'], ['mat-fxy', 'feed_xy'], ['mat-fz', 'feed_z'],
+                  ['mat-rpm', 'spindle_rpm'], ['mat-zop', 'z_op_mm'], ['mat-zinde', 'z_loeft_inde_mm'],
+                  ['mat-prox', 'prox_offset_mm'], ['mat-fraeser', 'fraeser'], ['mat-bredde', 'fraeser_bredde_mm']];
+const fmtMm = (v) => (v == null || v === '' ? '—' : String(v).replace('.', ',') + ' mm');
+
+async function hentMaterialer() {
+  let rows = [];
+  try { rows = await api('/api/materialer'); } catch (e) { toast('Kunne ikke hente materialer', 'fejl'); return; }
+  materialer = rows;
+  $('materiale-tabel').innerHTML = rows.length === 0
+    ? `<tr><td colspan="9" class="tomt">Ingen materialer endnu.<br><button class="btn btn-secondary btn-sm mt" onclick="visNytMateriale()">+ Opret fx Messing og Akryl/plast</button></td></tr>`
+    : rows.map((m) => `<tr>
+      <td data-label="Navn"><span class="clickable" onclick="redigerMateriale(${m.id})"><b>${esc(m.navn)}</b></span>${m.beskrivelse ? `<div class="small muted">${esc(m.beskrivelse)}</div>` : ''}</td>
+      <td data-label="Feed XY / Z">${m.feed_xy} / ${m.feed_z} in/min</td>
+      <td data-label="rpm">${m.spindle_rpm}</td>
+      <td data-label="Z-løft">${fmtMm(m.z_op_mm)}</td>
+      <td data-label="Mellem bogst.">${m.z_loeft_inde_mm == null ? '<span class="muted">= Z-løft</span>' : fmtMm(m.z_loeft_inde_mm)}</td>
+      <td data-label="Prox">${fmtMm(m.prox_offset_mm)}</td>
+      <td data-label="Fræser">${esc(m.fraeser || '—')}${m.fraeser_bredde_mm ? ` <span class="muted">(${fmtMm(m.fraeser_bredde_mm)})</span>` : ''}</td>
+      <td data-label="Templates">${m.templates}</td>
+      <td class="act">
+        <button class="btn btn-secondary btn-sm" onclick="redigerMateriale(${m.id})">Rediger</button>
+        <button class="btn btn-ghost btn-sm" onclick="kopierMateriale(${m.id})">Kopi</button>
+        <button class="btn btn-danger btn-sm" onclick="sletMateriale(${m.id})" ${m.templates ? 'disabled title="Bruges af templates"' : ''}>Slet</button>
+      </td></tr>`).join('');
+}
+
+function udfyldMateriale(m, titel, id) {
+  $('materiale-form-titel').textContent = titel;
+  $('mat-id').value = id || '';
+  MAT_FORM.forEach(([el, k]) => { $(el).value = m && m[k] != null ? m[k] : ''; });
+  $('materiale-form').style.display = 'block';
+  $('materiale-form').scrollIntoView({ behavior: 'smooth' });
+  $('mat-navn').focus();
+}
+function visNytMateriale() {
+  // Udgangspunkt: det første materiale (typisk Messing) — man retter bare det der er anderledes.
+  const forlaeg = materialer[0] ? { ...materialer[0], navn: '', beskrivelse: '' } : { z_op_mm: 5, prox_offset_mm: 1.5 };
+  udfyldMateriale(forlaeg, 'Nyt materiale', null);
+}
+function redigerMateriale(id) {
+  const m = materialer.find((x) => x.id === id);
+  if (m) udfyldMateriale(m, `Rediger — ${m.navn}`, id);
+}
+function kopierMateriale(id) {
+  const m = materialer.find((x) => x.id === id);
+  if (m) udfyldMateriale({ ...m, navn: m.navn + ' (kopi)' }, 'Nyt materiale (kopi)', null);
+}
+async function gemMateriale() {
+  const data = {};
+  MAT_FORM.forEach(([el, k]) => { data[k] = $(el).value.trim(); });
+  const id = $('mat-id').value;
+  const res = id ? await api(`/api/materialer/${id}`, 'PUT', data) : await api('/api/materialer', 'POST', data);
+  if (res.ok) {
+    toast('Materiale gemt', 'ok');
+    $('materiale-form').style.display = 'none';
+    await initDropdowns();
+    hentMaterialer();
+  } else {
+    toast(res.fejl || 'Kunne ikke gemme', 'fejl');
+  }
+}
+async function sletMateriale(id) {
+  const m = materialer.find((x) => x.id === id);
+  if (!confirm(`Slet materialet «${m ? m.navn : id}»?`)) return;
+  const res = await api(`/api/materialer/${id}`, 'DELETE');
+  if (res.ok) { toast('Materiale slettet', 'ok'); await initDropdowns(); hentMaterialer(); }
+  else toast(res.fejl || 'Kunne ikke slette', 'fejl');
+}
 
 // ─── Skilt-Templates ──────────────────────────────────────────────────────────
 async function testMaskine() {
