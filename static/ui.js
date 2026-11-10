@@ -88,7 +88,7 @@ try { document.documentElement.setAttribute('data-theme', localStorage.getItem('
 
 // ─── Navigation: to produktioner (Nøgler / Skilte) + System ──────────────────
 const NAV = {
-  noegler: { label: '🔑 Nøgler', items: [['nyt-job', 'Nyt job'], ['koe-noegler', 'Kø'], ['templates', 'Templates']] },
+  noegler: { label: '🔑 Nøgler', items: [['nyt-job', 'Nyt job'], ['koe-noegler', 'Kø'], ['templates', 'Templates'], ['materialer', 'Materialer']] },
   skilte:  { label: '🏷️ Skilte', items: [['skilte', 'Nyt skilt'], ['koe-skilte', 'Kø'], ['skilt-templates', 'Templates']] },
   system:  { label: '⚙ System',  items: [['maskiner', 'Maskiner & system']] },
 };
@@ -119,6 +119,7 @@ function gaaTil(id, opts = {}) {
   else if (id === 'koe-skilte') { visKoeFane('skilte'); _startAutoRefresh(); }
   else if (id === 'skilte') { if (typeof initSkilt === 'function') initSkilt(); }
   else if (id === 'templates') hentTemplates();
+  else if (id === 'materialer') hentMaterialer();
   else if (id === 'skilt-templates') hentSkiltTemplates();
   else if (id === 'maskiner') { hentMaskiner(); _startAutoRefresh(); }
   else if (id === 'nyt-job') { if (typeof opdaterPladeVisning === 'function') opdaterPladeVisning(); }

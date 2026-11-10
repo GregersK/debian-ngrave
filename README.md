@@ -12,21 +12,25 @@ Webbaseret system til nøgle- og skiltegravering med live jobkø, batch-håndter
 - Batch-gravering med auto-opdeling på plader (f.eks. 20 nøgler pr. plade)
 - On-hold workflow — næste plade frigives manuelt
 - Dynamiske felter per template (op til 4): Markering, System nr, Løbenr (auto), Ekstra
-- Per-felt skrifttype, tekststørrelse, X/Y placering og justering
+- Per-felt skrifttype, tekststørrelse, bogstavafstand, X/Y placering og justering
+- Materialer (fx Messing, Akryl/plast): hastighed, rpm, dybde og fræser ét sted — templates peger på et materiale
+- Lavt løft mellem bogstaverne på samme nøgle (fuldt løft mellem nøgler) — kortere tid pr. nøgle
+- Forhåndsvisning med de rigtige gravér-streger + advarsel hvis en tekst ikke passer i zonen (også før en ordre oprettes)
 - Grid-editor med auto-udfyld (start X/Y + afstand)
 - Maskin-kalibrering (global X/Y/Z offset per maskine)
 - Start-slot valg (start ved slot 3 f.eks. hvis plade er halvt fuld)
 
 ### Skiltegravering
 - Fri størrelse i mm
-- 1–10 tekstlinjer med skrifttype, størrelse, justering og manuel X/Y
+- 1–10 tekstlinjer med skrifttype, størrelse, bogstavafstand, justering og manuel X/Y
 - Skilt-templates til genbrugelige layouts
-- Live visualisering med korrekt fontrendring
+- Live forhåndsvisning med de rigtige gravér-streger (samme motor som graveringen)
 
 ### Generelt
 - 🌓 Light/Dark mode (huskes i browser)
 - Live preview for både nøgle-felter og skilte
-- 18 single-stroke skrifttyper: Block (custom, med ÆØÅ), Sans, Roman, Times (normal/fed/kursiv), Script/Kursiv og Gotisk/Blackletter
+- 23 enkeltstregs-skrifttyper — **alle med ægte Æ Ø Å** — i grupperne Blok, Sans, Serif, Håndskrift og Gotisk (se `fonts/README.md`)
+- Hurtigere gravering: færre penneløft pr. maskine (Ingen / Let / Fuld)
 - Automatisk migration ved opgradering (ingen manuel SQL)
 - Jobkø med ryd-op funktion
 
@@ -134,7 +138,10 @@ ngrave/
 ├── ngrave-update.sh        # Tag-baseret auto-opdatering (stable/beta)
 ├── workers/
 │   ├── block_font.py       # Custom single-stroke font med ÆØÅ
-│   ├── font_manager.py     # Font router (block + Hershey fonts)
+│   ├── font_manager.py     # Font-register og -router (block, Hershey, SVG)
+│   ├── svg_font.py         # Læser enkeltstregs SVG-fonte (kurver, kerning)
+│   ├── dansk.py            # Bygger ægte Æ Ø Å æ ø å til Hershey-fontene
+│   ├── optimering.py       # Færre penneløft: kæder streger sammen
 │   ├── gcode_worker.py     # G-code generator til S5
 │   ├── cipher_worker.py    # CIPHER CEF generator til S3
 │   ├── forbindelse.py      # Forbindelse, online-probe og status mod maskiner
@@ -147,7 +154,8 @@ ngrave/
 │   ├── ngrave_a.js         # Nøgle-job, plade-visning, køer
 │   ├── skilt.js            # Skilt-editor, preview, skrifttype-galleri
 │   └── ngrave_b.js         # Templates, maskiner, system, backup
-└── tests/                  # Enhedstests (layout-motor + API)
+├── fonts/                  # Medfølgende SVG-fonte (Relief, EMS) + licenser
+└── tests/                  # Enhedstests (layout, fonte, kø, API) + golden_v61.json
 ```
 
 ### Kør tests
@@ -164,6 +172,30 @@ Testene bruger en midlertidig database og rører aldrig en rigtig installations 
 
 ### Custom Block Font
 Single-stroke font håndkodet i `block_font.py` med fuld dansk tegnsæt (ÆØÅ/æøå). Designet specifikt til gravering — alle tegn graveres i én sammenhængende bevægelse uden løft.
+
+### Skrifttyper, ÆØÅ og bogstavafstand
+- **Fonte**: Block (nøgler), Hershey (Sans, Times, Script, Kursiv, Gotisk) og medfølgende SVG-fonte i `fonts/` (Relief SingleLine + 9 EMS-fonte, alle OFL). Fem Hershey-fonte var streg for streg identiske med en anden font; de er skjult i menuerne, men templates der bruger dem graverer uændret.
+- **ÆØÅ**: Hershey-fontene har ingen ÆØÅ — `workers/dansk.py` bygger dem af fontens egne bogstaver (O+streg, A+ring, A-halvdel+E …) med en opskrift pr. font (opret, kursiv, script, gotisk). Et konstrueret bogstav er aldrig bredere end den gamle erstatning (AE/OE/AA).
+  - *Skilte* får altid ægte ÆØÅ.
+  - *Nøgle-templates* har valget **Ægte Æ Ø Å**: slået til på nye templates, slået fra på templates fra før v6.2 (så de graverer præcis som før) — kan slås til pr. template.
+- **Bogstavafstand** (mm, negativ = tættere) pr. linje på skilte og pr. felt på nøgler. Relief SingleLine bruger desuden fontens egen kerning.
+- **Kompatibilitet**: `tests/golden_v61.json` indeholder fingeraftryk af G-code/CIPHER fra før omskrivningen; testene kræver byte-identisk output for eksisterende templates.
+
+### Materialer og løft (nøgler)
+`materialer`-tabellen samler feed XY/Z, spindel-rpm, Z-løft, *løft mellem bogstaver*, prox/dybde, fræser og fræserens stregbredde. `templates.materiale_id` peger på et materiale (NULL = templatens egne værdier, som før v6.2); ved gravering, forhåndsvisning og ordre-tjek erstatter materialets værdier templatens (`_med_materiale` i `app.py`).
+
+*Løft mellem bogstaver* (`z_loeft_inde_mm`): inden for én nøgle løftes kun så meget; efter nøglens sidste streg løftes det fulde Z-løft før kørslen til næste nøgle. Minimum 1,5 mm (nøglehovedets ramme kan være op til 1 mm høj) håndhæves både ved gem og i G-code-generatoren. Gælder S5 (G-code); CIPHER (S3) bruger kun materialets feed.
+
+### Hastighed (penneløft)
+Hver streg koster et løft + prox-nedkørsel. Pr. maskine (under *Maskiner → Rediger*):
+
+| Niveau | Hvad der sker |
+|---|---|
+| **Fuld** (standard) | Streger der rører hinanden køres i ét stræk — også når den ene skal køres baglæns — og næste streg er den nærmeste. Samme streger graveres; typisk 20–50 % færre penneløft (fede/gotiske fonte mest). |
+| Let | Kun streger der fortsætter præcis hvor den forrige sluttede + fjerner overflødige punkter. Samme rækkefølge og retning som fonten. |
+| Ingen | Præcis som før v6.2. |
+
+Forhåndsvisningerne og font-galleriet viser antal penneløft og fræsevej, så man kan vælge en hurtig font (Relief og de enkle Sans/Script-fonte er hurtigst; Times fed og Gotisk langsomst).
 
 ### G-code workflow (S5)
 ```
@@ -226,6 +258,13 @@ Indstillinger (valgfrie, i `/etc/ngrave/ngrave.env`):
 | POST | `/api/maskiner/<id>/test` | Kør til 0,0 position (kræver bekræftelse hvis der lige er sendt et program) |
 | GET | `/api/maskiner/status` | Online-status + kø-tal pr. maskine (rører ikke maskinerne) |
 | POST | `/api/maskiner/<id>/ping` | Tjek nu: opretter og lukker en forbindelse — sender aldrig data |
+| GET | `/api/fonts` | Skrifttyper i menuen (id → navn) |
+| GET | `/api/fonts/info` | Alle skrifttyper inkl. skjulte/gamle id'er, med gruppe |
+| GET | `/api/fonts/prove?tekst=` | Prøvetekst i alle skrifttyper (streger + penneløft) |
+| POST | `/api/templates/preview` | Nøgle-template med eksempeltekst: streger, fejl/advarsler, penneløft |
+| POST | `/api/batches/tjek` | Passer ordrens tekster i zonen? (opretter intet) |
+| GET/POST | `/api/materialer` | Materialer (hastighed, dybde, fræser) |
+| PUT/DELETE | `/api/materialer/<id>` | Ret / slet materiale (slet spærret hvis i brug) |
 | GET | `/api/templates` | Liste nøgle-templates |
 | POST | `/api/templates` | Opret template |
 | PUT | `/api/templates/<id>` | Opdater template |
@@ -247,6 +286,8 @@ Indstillinger (valgfrie, i `/etc/ngrave/ngrave.env`):
 
 MIT License — brug frit, men del forbedringer gerne tilbage.
 
+Skrifttyperne i `fonts/` har deres egne licenser (SIL Open Font License) — se `fonts/README.md`.
+
 ---
 
 ## Udviklet med
@@ -254,7 +295,7 @@ MIT License — brug frit, men del forbedringer gerne tilbage.
 - Python / Flask
 - SQLite
 - Vanilla JavaScript (ingen frameworks)
-- Hershey Fonts
+- Hershey Fonts, Relief SingleLine og EMS-fontene (se `fonts/README.md`)
 - Custom single-stroke block font
 
 *Bygget til bla. låsesmedevirksomheder med Vision Phoenix gravemaskiner*

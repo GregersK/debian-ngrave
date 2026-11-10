@@ -2,7 +2,7 @@
 
 ## v6.2 (Juni 2026)
 
-Skrifttyper + skilt-sikkerhed + menu-opdeling + robust auto-opdatering + port 80 som standard + beta-kanal + opdaterings-overvågning + template-backup.
+Skrifttyper med ægte ÆØÅ + hurtigere gravering + skilt-sikkerhed + menu-opdeling + robust auto-opdatering + port 80 som standard + beta-kanal + opdaterings-overvågning + template-backup.
 
 ### Nyt GUI (mobil først)
 - Helt nyt designsystem (`static/ngrave.css`) med lyst/mørkt tema, samme layout på iPhone og desktop: tabeller bliver til kort på små skærme, store trykflader, 16 px inputs (ingen iOS-zoom ved fokus).
@@ -12,6 +12,26 @@ Skrifttyper + skilt-sikkerhed + menu-opdeling + robust auto-opdatering + port 80
 - **Nøgle-job**: pladen vises som et skematisk gitter med nummererede slots, aktuelt start-slot fremhævet og en klar fejl hvis start-slot ligger uden for pladen (Send-knappen deaktiveres).
 - **Kø**: "Lav igen" på fejlede/færdige skilte og hele batches (`POST /api/skilte/<id>/gentag`, `/api/batches/<id>/gentag`), læsbare fejlårsager i stedet for rå undtagelser, auto-opdatering kun når fanen er synlig.
 - Skilt-templates har nu felter for **feed, feed Z, rpm, Z-dybde og prox-offset** i UI'et (backend understøttede det siden v6.0, men der var ingen måde at sætte dem på) og kan knyttes til en maskine.
+
+### Nøgler: materialer, lavt løft mellem bogstaver, fræserens bredde
+- **Materialer** (Nøgler → Materialer): hastighed (feed XY/Z), spindel-rpm, Z-løft, prox/dybde og fræser samlet i en profil — fx *Messing* og *Akryl/plast*. En nøgle-template peger på ét materiale; retter man materialet, gælder det alle templates der bruger det. Templates uden materiale bruger deres egne værdier præcis som før.
+  - Ved opdateringen oprettes profilen **Messing** ud fra de værdier templates oftest bruger på den installation. Ingen templates kobles på automatisk.
+  - Et materiale der bruges af templates kan ikke slettes. Eksport/import tager materialerne med (matches på navn).
+- **Lavt løft mellem bogstaver** (pr. materiale eller template): fræseren løftes fx kun 2 mm mellem stregerne på samme nøgle, og fuldt Z-løft bruges stadig efter nøglens sidste streg (før kørsel til næste nøgle). Mindst 1,5 mm — nøglehovedets ramme kan være 0,8–1,0 mm høj — og aldrig over Z-løftet. Tomt = som før. Gælder G-code-maskiner (S5). Anslået ca. 12 % kortere tid pr. nøgle med standard-templaten ved 2 mm (groft regnestykke — ikke målt på maskinen).
+- **Fræserens stregbredde i forhåndsvisningen**: stregerne tegnes så brede som fræseren skærer, så man ser om små bogstaver flyder sammen. Advarsel når teksthøjden er under ca. 7 × stregbredden.
+
+### Skrifttyper: ægte ÆØÅ overalt, flere fonte, bogstavafstand, hurtigere gravering
+- **Ægte Æ Ø Å æ ø å i alle skrifttyper.** Hershey-fontene har dem ikke; de bygges nu af fontens egne bogstaver (`workers/dansk.py`): Ø = O + skråstreg, Å = A + ring (dobbelt/tredobbelt i fede fonte), Æ = A'ets venstre halvdel + E med stammen i spidsen, æ = a + e. Egen opskrift for opret, kursiv (hældningen rettes ud først), script og gotisk. Et konstrueret bogstav er aldrig bredere end den gamle erstatning (AE/OE/AA), så intet der passede før, kommer til at stikke ud.
+  - Skilte: altid ægte ÆØÅ.
+  - Nøgle-templates: nyt valg **Ægte Æ Ø Å** — slået til på nye templates, slået *fra* på eksisterende (de graverer præcis som før), kan slås til pr. template.
+- **10 nye skrifttyper** (SIL Open Font License, filer + licens i `fonts/`): **Relief SingleLine** (moderne sans tegnet til CNC, med kerning) og EMS Readability (+ kursiv), Nixish (+ kursiv), Osmotron, Tech, Allure, Felix og Elfin — alle med ÆØÅ.
+- **Menuen ryddet op**: 5 af de 18 skrifttyper var streg for streg de samme som en anden (Sans simpel = Roman simpel, Sans fed = Roman, Times fed = Roman fed, Gotisk = Blackletter tysk, Gotisk fed = Blackletter engelsk). Dubletterne er skjult i menuerne, men virker uændret i templates der bruger dem (og vises som "(ældre)" når sådan en template redigeres, så en gem ikke skifter fonten). Menuerne er grupperet: Blok, Sans, Serif, Håndskrift, Gotisk. I alt 23 skrifttyper.
+- **Bogstavafstand** i alle skrifttyper: pr. linje på skilte (stepper ved siden af højden) og pr. felt på nøgle-templates. Nøgle-templates havde kolonnerne i databasen, men de blev aldrig gemt og kunne ikke sættes i GUI'en.
+- **Hurtigere gravering — færre penneløft** (`workers/optimering.py`), valg pr. maskine: *Fuld* (standard) kæder streger der rører hinanden sammen — også baglæns — og tager den nærmeste næste; *Let* holder fontens rækkefølge og retning; *Ingen* er præcis som før. Samme streger graveres i alle tilfælde. Målt: 20–50 % færre løft i fede/gotiske fonte (fx Sans fed 236 → 119), ca. 20 % i enkle fonte, ~0 i Block. Forhåndsvisninger og font-galleriet viser penneløft og fræsevej; galleriet markerer de hurtigste fonte.
+- **Block-fonten** kan nu `, : ; + # & ( ) ' ! ? * = _ @ %` (blev før sprunget stille over). Der var i forvejen afsat præcis den plads til dem, så intet andet på en nøgle flytter sig.
+- **Nøgle-templates: forhåndsvisning med de rigtige streger** (`POST /api/templates/preview`) i stedet for browser-fonte og en gættet bredde. Man kan skrive sine længste tekster og se om de passer; rød besked hvis et felt stikker ud af zonen, gul hvis det ligger uden for zonens højde. Felt-fanen er nu brugbar på telefon.
+- **Ordre-tjek før oprettelse** (`POST /api/batches/tjek`): stikker en tekst (eller det bredeste løbenummer) ud over nøglens zone, eller mangler et tegn i fonten, bliver man spurgt før ordren lægges i køen. Før blev teksten bare graveret ind over nabonøglen.
+- Kurver i SVG-fontene flades ud med en tolerance der følger teksthøjden (glat på store skilte, ingen tusindvis af mikro-linjer på små), og alle fonte varmes op i baggrunden ved opstart.
 
 ### Kø: én tråd pr. maskine + sikre genforsøg
 - **En slukket eller hængende maskine blokerer ikke længere de andre.** Køen var én serie: ét job ad gangen på tværs af alle maskiner, så fx en slukket maskine med mange jobs ventede 15–30 s pr. job før de næste maskiners jobs kom til. Nu har hver maskine sin egen arbejdstråd (stadig ét job ad gangen pr. maskine, ældste først).
@@ -42,7 +62,7 @@ Skrifttyper + skilt-sikkerhed + menu-opdeling + robust auto-opdatering + port 80
 - Batches får en `fejl_besked`-kolonne (additiv migration — eksisterende databaser berøres ikke) så årsagen til en fejlet batch kan vises.
 
 ### Tests
-- Ny testpakke (`python3 -m unittest discover -s tests`, 45 tests): layout-motoren (bounds inkl. nedhæng, centrering, margin, manuelt X, overlap-advarsel, preview og G-code bruger samme koordinater), skilte-API'et (validering, preview, gentag, feed/maskine i skilt-template), nøgle-ordrer (for store/ugyldige afvises med 400), statuslinje-tællere, eksport/import-roundtrip samt kø og online-kontrol (rigtige sockets mod en lokal falsk maskine: én tråd pr. maskine, genforsøg, fail-fast, probe-regler).
+- Ny testpakke (`python3 -m unittest discover -s tests`, 83 tests): layout-motoren (bounds inkl. nedhæng, centrering, margin, manuelt X, overlap-advarsel, preview og G-code bruger samme koordinater), skilte-API'et (validering, preview, gentag, feed/maskine i skilt-template), nøgle-ordrer (for store/ugyldige afvises med 400), statuslinje-tællere, eksport/import-roundtrip samt kø og online-kontrol (rigtige sockets mod en lokal falsk maskine: én tråd pr. maskine, genforsøg, fail-fast, probe-regler), skrifttyper (ÆØÅ i alle 28 fonte, bredde aldrig større end AE/OE/AA, bogstavafstand, kerning, skjulte dubletter) og sti-optimeringen (samme fræsevej, aldrig flere løft, ingen nye koordinater), materialer (validering, gravering med materialets værdier, sletning spærret, eksport/import) og lavt løft (fuldt løft én gang pr. nøgle, aldrig under 1,5 mm). **Kompatibilitets-test:** `tests/golden_v61.json` er fingeraftryk af G-code/CIPHER for 66 template/font-kombinationer lavet med koden FØR font-omskrivningen — eksisterende templates skal give byte-identisk output.
 
 ### Backup af templates (eksport/import)
 - Ny **💾 Backup af templates**-sektion under **Maskiner**: eksportér alle nøgle- og skilt-templates til en JSON-fil, og importér dem igen (på samme eller en anden maskine).
@@ -81,12 +101,12 @@ Skrifttyper + skilt-sikkerhed + menu-opdeling + robust auto-opdatering + port 80
 - Rettet med korrekt import + API. Verificeret at alle skrifttyper nu renderer med rigtig orientering, højde og bredde.
 
 ### Flere skrifttyper
-- Udvidet fra 13 (hvoraf 12 var i stykker) til **18 fungerende single-stroke skrifttyper**: Block, Sans (simpel/fed), Roman (simpel/normal/fed), Times (normal/fed/kursiv/fed-kursiv), Script/Kursiv (3) og Gotisk/Blackletter (5).
+- Udvidet fra 13 (hvoraf 12 var i stykker) til 18 fungerende single-stroke skrifttyper — siden ryddet op og udvidet til 23 (se *Skrifttyper* øverst).
 - Gamle font-nøgler i eksisterende templates/skilte (`romans`, `italict`, …) mappes automatisk til nærmeste rigtige skrifttype (bagudkompatibelt — ingen data mistes).
 - Nøgle-template og skilt font-dropdowns udfyldes nu dynamisk fra font-listen.
 
 ### Dansk tegnsæt i skilte
-- Hershey-skrifttyperne indeholder ikke ÆØÅ (de rendrede som blanke huller). De substitueres nu til AE/OE/AA (bevarer versal/minuskel) — samme princip som block-fonten — så danske skilte kan graveres i alle skrifttyper.
+- Hershey-skrifttyperne indeholder ikke ÆØÅ (de rendrede som blanke huller). Første løsning var AE/OE/AA; nu bygges ægte ÆØÅ (se *Skrifttyper* øverst).
 
 ### Skilt-sikkerhed (vigtigt før go-live)
 - **Bounds-check** (første version — se rettelsen ovenfor): `skilt_worker` validerer nu at ALLE linjer passer inden for skiltets bredde/højde FØR spindlen tændes. Tekst der er for bred (eller manuel X/Y uden for kanten) afviser jobbet med en klar fejlbesked i stedet for at gravere ud over kanten ind i emne-holder/bord.

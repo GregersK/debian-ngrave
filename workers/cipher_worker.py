@@ -2,6 +2,7 @@
 import socket, time
 from .font_manager import get_strokes
 from .forbindelse import aabn
+from .optimering import optimer
 
 SPM = 40  # steps per mm
 
@@ -35,11 +36,13 @@ def byg_job_cmds(job, tmpl):
     th      = tmpl['tekst_hoejde_mm']
     font    = tmpl.get('font', 'block') or 'block'
     spejl_y = bool(tmpl.get('spejl_y', False))
+    dansk   = bool(tmpl.get('dansk_tegn', 0))
+    niveau  = tmpl.get('optimering', 'ingen')
     sx  = job['slot_x_mm'] + float(tmpl.get('offset_x') or 0)
     sy  = job['slot_y_mm'] + float(tmpl.get('offset_y') or 0)
 
     def juster_x(base_x, tekst, justering, ffont, fth, fafstand):
-        _, bredde = get_strokes(tekst, fth, ffont, fafstand)
+        _, bredde = get_strokes(tekst, fth, ffont, fafstand, dansk)
         if justering == 'hoejre':   return base_x + zw - bredde
         elif justering == 'center': return base_x + (zw - bredde) / 2
         return base_x
@@ -67,7 +70,8 @@ def byg_job_cmds(job, tmpl):
         tekst = job.get(felt_navn, '') or ''
         if not tekst.strip():
             continue
-        strokes, bredde = get_strokes(tekst, fth, ffont, fafstand)
+        strokes, bredde = get_strokes(tekst, fth, ffont, fafstand, dansk)
+        strokes = optimer(strokes, niveau)
         dx = float(tmpl.get(f'felt_{felt_key}_dx') or 0)
         dy = float(tmpl.get(f'felt_{felt_key}_dy') or 0)
         x = juster_x(sx + float(fx) + dx, tekst, fjus, ffont, fth, fafstand)

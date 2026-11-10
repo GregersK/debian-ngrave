@@ -1,0 +1,266 @@
+{
+ "cipher-spejl/block": {
+  "linjer": 0,
+  "sha256": "a232a7a391d31a4d163513f33edd44b6b0a658bec2143093e74f5e4f6b87ca74"
+ },
+ "cipher-spejl/cursive": {
+  "linjer": 0,
+  "sha256": "187606f84de8e9a13c9f0d23a28536aad2ad6414149b595c4d8f15f1f316de52"
+ },
+ "cipher-spejl/futural": {
+  "linjer": 0,
+  "sha256": "e696b2d3989f0d38e45bed208b81c9f085aecb2882d85515e7ce25c45c3385c9"
+ },
+ "cipher-spejl/futuram": {
+  "linjer": 0,
+  "sha256": "43c80f175e43244c9461e8e9dbe9d54520de2511a7e25269e55a6f4885894337"
+ },
+ "cipher-spejl/gothgbt": {
+  "linjer": 0,
+  "sha256": "da47b8f0eb7a86f578f7107e777453acbf5fb47bc5f04e9abbaa29a9cf20b342"
+ },
+ "cipher-spejl/gothgrt": {
+  "linjer": 0,
+  "sha256": "c8acfa9f0c6b58ee05f5bd2414574d1f25b2ca2d5408ee27402583eed21d19b8"
+ },
+ "cipher-spejl/gothiceng": {
+  "linjer": 0,
+  "sha256": "2bdab2e6e83a28a4871248fd4d6304ac958f25c190e2e85ba5f4256293c87be9"
+ },
+ "cipher-spejl/gothicger": {
+  "linjer": 0,
+  "sha256": "d716bb36723d145326299c466911ef871570d044086e79b6fd5ca22633ebc835"
+ },
+ "cipher-spejl/gothicita": {
+  "linjer": 0,
+  "sha256": "6bacbd518fb4d1f9382be72e4f45ec1f3852303310949e6f8d621de5cfe52c74"
+ },
+ "cipher-spejl/italict": {
+  "linjer": 0,
+  "sha256": "66d4fff818149284e702872ab17d7f5c491804ce341cdd5b7163d230db0a8430"
+ },
+ "cipher-spejl/romans": {
+  "linjer": 0,
+  "sha256": "aa280fa3d5af242b7d932ae4161d68efdf89778b1904119836b94a7a42a54eb2"
+ },
+ "cipher-spejl/rowmand": {
+  "linjer": 0,
+  "sha256": "ecb361259bef1a8f5170a82abc8afc672f4af06a7598072aa56825cb90030027"
+ },
+ "cipher-spejl/rowmans": {
+  "linjer": 0,
+  "sha256": "aa280fa3d5af242b7d932ae4161d68efdf89778b1904119836b94a7a42a54eb2"
+ },
+ "cipher-spejl/rowmant": {
+  "linjer": 0,
+  "sha256": "7e70a626cd501cdf14ab2c5fb0629aa1459b63a21a4ffaef118fb6905cc98976"
+ },
+ "cipher-spejl/scriptc": {
+  "linjer": 0,
+  "sha256": "270d8cc26236b59e67703fce80bcbb2a36ba2c8e956a4d23a0a8756332357115"
+ },
+ "cipher-spejl/scripts": {
+  "linjer": 0,
+  "sha256": "6b39eb26fe252b7cb7448454048b341f14aa45f27394f7d3af4c4e0c59e375a7"
+ },
+ "cipher-spejl/timesi": {
+  "linjer": 0,
+  "sha256": "b20e3ac83b75901560ed566b67b3314b251957a6ad7968f460bdf8e4a7bfec62"
+ },
+ "cipher-spejl/timesib": {
+  "linjer": 0,
+  "sha256": "66d4fff818149284e702872ab17d7f5c491804ce341cdd5b7163d230db0a8430"
+ },
+ "cipher-spejl/timesr": {
+  "linjer": 0,
+  "sha256": "03af6792067971d85eafce64241c56ed25d81a2ed230316b3b62faf310e245a1"
+ },
+ "cipher-spejl/timesrb": {
+  "linjer": 0,
+  "sha256": "4b82649b4b155a42872138bf59dd22203c945846ff1568c6880dbfd3218ee1b6"
+ },
+ "cipher-spejl/ukendt_font": {
+  "linjer": 0,
+  "sha256": "a232a7a391d31a4d163513f33edd44b6b0a658bec2143093e74f5e4f6b87ca74"
+ },
+ "cipher/block": {
+  "linjer": 0,
+  "sha256": "d14c6d4a14080cf13d81cb7b7eda988cc5869785647381ebc90336ce754b6e28"
+ },
+ "cipher/cursive": {
+  "linjer": 0,
+  "sha256": "4d4af421d2566caa71ab0eb3eba65144c0a22777bcba1cade10c9d9e75e6d5c1"
+ },
+ "cipher/futural": {
+  "linjer": 0,
+  "sha256": "77e3598f954055334fae1daea6ea606ea6ebb566e522571af884dd9f82532b7a"
+ },
+ "cipher/futuram": {
+  "linjer": 0,
+  "sha256": "83e7671dfd8d65d05089f47e26b508695813b599fb798fd36d2771dae5da04b5"
+ },
+ "cipher/gothgbt": {
+  "linjer": 0,
+  "sha256": "11531fef0ccb3e4cf2c74a4fa6ac1e31e008b1ae0251262038afa9bc383eb78a"
+ },
+ "cipher/gothgrt": {
+  "linjer": 0,
+  "sha256": "da968974a6bbccd62fab0b542351cfaeb20e1114af415741b7cbc252e45b2c9c"
+ },
+ "cipher/gothiceng": {
+  "linjer": 0,
+  "sha256": "95693765b099a2fff629880145e844fece43268760deb66b3cca7234263913c9"
+ },
+ "cipher/gothicger": {
+  "linjer": 0,
+  "sha256": "959dc2f7186dff215f560dea54fed45faf3cf5321437bd77c062129fb92503f1"
+ },
+ "cipher/gothicita": {
+  "linjer": 0,
+  "sha256": "ff1ad38573ed03cb28eefc886110eb3798df8ee8dafbe6ceeb0e39d83ecd3b91"
+ },
+ "cipher/italict": {
+  "linjer": 0,
+  "sha256": "8cfc8e7e0fbed749e4eed793ea69aad70f4bb38f59162711b16026ce617634d1"
+ },
+ "cipher/romans": {
+  "linjer": 0,
+  "sha256": "9ab505c0a3ddb0a7d42ae81d237172ccaf943035a6bdb01665581b97dc041812"
+ },
+ "cipher/rowmand": {
+  "linjer": 0,
+  "sha256": "9e75f8f185e9e7c823ad57b041c78213b9f50aef70ac49c2cefcf96bfd67f807"
+ },
+ "cipher/rowmans": {
+  "linjer": 0,
+  "sha256": "9ab505c0a3ddb0a7d42ae81d237172ccaf943035a6bdb01665581b97dc041812"
+ },
+ "cipher/rowmant": {
+  "linjer": 0,
+  "sha256": "a3f5614b697f01e9a2d4bc75adf9656d38c5d39d338cf03af3edbdab7203e064"
+ },
+ "cipher/scriptc": {
+  "linjer": 0,
+  "sha256": "54110e42ed67a31511b25baa7996604004ecda20e567935fba2e354891aaf471"
+ },
+ "cipher/scripts": {
+  "linjer": 0,
+  "sha256": "0d0e1ac1e47b53e7f7f5116bb3c8150ffa4d75ec2f8f21627eba463377657192"
+ },
+ "cipher/timesi": {
+  "linjer": 0,
+  "sha256": "1948d331f3e3e455cd688acabd7af71cf506ec127895df847c6c669c3e138fc5"
+ },
+ "cipher/timesib": {
+  "linjer": 0,
+  "sha256": "8cfc8e7e0fbed749e4eed793ea69aad70f4bb38f59162711b16026ce617634d1"
+ },
+ "cipher/timesr": {
+  "linjer": 0,
+  "sha256": "31065c81abb441bc377f3b15983484aed64799de3022359ec2924b0a6ef8efe8"
+ },
+ "cipher/timesrb": {
+  "linjer": 0,
+  "sha256": "93c0ee33f9d68dbc8c232efe301e375c60ef4433826cc5818f4cdda1ed6ae7b0"
+ },
+ "cipher/ukendt_font": {
+  "linjer": 0,
+  "sha256": "d14c6d4a14080cf13d81cb7b7eda988cc5869785647381ebc90336ce754b6e28"
+ },
+ "gcode/block": {
+  "linjer": 1397,
+  "sha256": "33be60106e5a0b385dc5cb7a5eef8ac48635c2bc01a9794344cb5df15ebb46de"
+ },
+ "gcode/cursive": {
+  "linjer": 2091,
+  "sha256": "e29e71a19cdd7e209196b743cdc170aa786bada5f3a3a19c75d3ec6f1d11016f"
+ },
+ "gcode/futural": {
+  "linjer": 1881,
+  "sha256": "9cfb7ce3cb5c423eabc027c82a03171be34c33513323ef063d59fbdd2a1c11c9"
+ },
+ "gcode/futuram": {
+  "linjer": 3886,
+  "sha256": "3c3fac5e4b3385f9b7f575fc078bf884111ec4972ccd1494f031d49f4af68a1f"
+ },
+ "gcode/gothgbt": {
+  "linjer": 7867,
+  "sha256": "c2af27c2d534e92d121ec9da0af97e3cb59f32d5fd22fc12442c0025c12327d7"
+ },
+ "gcode/gothgrt": {
+  "linjer": 7076,
+  "sha256": "80c9904a3f3e94070ccf4e38467e9e7e7b46be37d1ecaddf1d8d71818b3871db"
+ },
+ "gcode/gothiceng": {
+  "linjer": 7855,
+  "sha256": "28f454b430f12b86d50fce034ad10f469d49272c1b2e2a3e4ee20cc5a625a58d"
+ },
+ "gcode/gothicger": {
+  "linjer": 7064,
+  "sha256": "cab7b396bf20d8db298ca469a1e9fa37ef6b8b9d7e8a5aa00966b8525786eacb"
+ },
+ "gcode/gothicita": {
+  "linjer": 6067,
+  "sha256": "20cb316c2022bf394addbba84416a2e8809cb6b102003bb283e31d3ecff3700e"
+ },
+ "gcode/italict": {
+  "linjer": 7176,
+  "sha256": "3e7ddd18cefe62412ed3280fb07c90510a16ed4c6463c181559092b9e26bbe36"
+ },
+ "gcode/romans": {
+  "linjer": 1881,
+  "sha256": "2db0f5baa8ed00a8db140f06330f6e3e30caac46c37e9f5f7ec8f8d765545830"
+ },
+ "gcode/rowmand": {
+  "linjer": 3898,
+  "sha256": "6894a9ff67c1bb8f61df8faafefee668aca5cbbc0362a4023170a99d2e14f7b7"
+ },
+ "gcode/rowmans": {
+  "linjer": 1881,
+  "sha256": "2db0f5baa8ed00a8db140f06330f6e3e30caac46c37e9f5f7ec8f8d765545830"
+ },
+ "gcode/rowmant": {
+  "linjer": 7792,
+  "sha256": "ce48ec9fad87d4fa9785aa31224dda4ed183abed4cd6cecc8d3fccb46a7d1618"
+ },
+ "gcode/scriptc": {
+  "linjer": 3743,
+  "sha256": "4cfe00a4841de9acb33372b6dea3149ee4b00b4e4e5631d866f93855ffa2e030"
+ },
+ "gcode/scripts": {
+  "linjer": 2491,
+  "sha256": "a7274a6312510d502d9dcc8b9dc9eefe70683ee944438bf8181141cac762022e"
+ },
+ "gcode/timesi": {
+  "linjer": 3771,
+  "sha256": "ffc3e85b256b036140c7000878127636bde934c58d3ff50d827b3dd3c92dcf9d"
+ },
+ "gcode/timesib": {
+  "linjer": 7176,
+  "sha256": "3e7ddd18cefe62412ed3280fb07c90510a16ed4c6463c181559092b9e26bbe36"
+ },
+ "gcode/timesr": {
+  "linjer": 3839,
+  "sha256": "4b2f8ae5761140963df5a7467761392e2a7fcddc6f6f763c14e277207259295a"
+ },
+ "gcode/timesrb": {
+  "linjer": 7780,
+  "sha256": "9957b3d735b393180a4862ea2124ca12dba184788941700d52675ceeb20a4c66"
+ },
+ "gcode/ukendt_font": {
+  "linjer": 1397,
+  "sha256": "33be60106e5a0b385dc5cb7a5eef8ac48635c2bc01a9794344cb5df15ebb46de"
+ },
+ "skilt/0": {
+  "linjer": 1533,
+  "sha256": "a6bbd02a4e660c6680358b5cb97bc62d390c33be610c6de4ebf474c5fca9c813"
+ },
+ "skilt/1": {
+  "linjer": 1431,
+  "sha256": "73d77061c7e0a4d618fe12f1eedee0e09012cd9d2ba46946c47012559c351d32"
+ },
+ "skilt/2": {
+  "linjer": 482,
+  "sha256": "a2d9388924b282553d7c98fb6855776d9c048b8d7477fd67dbbdead6cc676440"
+ }
+}
