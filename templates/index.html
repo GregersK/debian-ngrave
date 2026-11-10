@@ -139,7 +139,7 @@
 
         <div class="mt">
           <label for="skilt-maskine">Maskine</label>
-          <select id="skilt-maskine" onchange="try{localStorage.setItem('sidst_skilt_maskine', this.value)}catch(e){} opdaterMaskineAdvarsler()"></select>
+          <select id="skilt-maskine" onchange="try{localStorage.setItem('sidst_skilt_maskine', this.value)}catch(e){} opdaterMaskineAdvarsler(); opdaterSkiltPreview()"></select>
           <div id="skilt-maskine-advarsel" class="banner advarsel mt" style="display:none;"></div>
         </div>
 
@@ -212,11 +212,15 @@
         <div><label>Prox offset (mm)</label><input id="t-prox" type="number" value="1.5" step="0.1"></div>
         <div><label>Standard maskine</label><select id="t-maskine"><option value="">Valgfri</option></select></div>
       </div>
-      <p style="color:var(--text-secondary);font-size:0.8rem;margin-top:12px;">💡 Skrifttype og tekststørrelse per felt sættes under <strong>Felt-placering</strong> tabben.</p>
+      <label class="chk-linje" style="display:flex;gap:8px;align-items:flex-start;margin-top:14px;">
+        <input type="checkbox" id="t-dansk" checked onchange="opdaterPreview()" style="margin-top:3px;">
+        <span><b>Ægte Æ Ø Å</b> i alle skrifttyper <span class="muted small">— slå fra for at gravere AE / OE / AA som templates fra før v6.2 gjorde (Block-fonten har altid ÆØÅ)</span></span>
+      </label>
+      <p style="color:var(--text-secondary);font-size:0.8rem;margin-top:12px;">💡 Skrifttype, tekststørrelse og bogstavafstand per felt sættes under <strong>Felt-placering</strong> tabben.</p>
     </div>
 
     <div id="tab-t-felt" class="tab-content">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+      <div class="felt-layout">
         <div>
           <h3 style="margin-bottom:12px;color:var(--accent);">Felter</h3>
           <p style="color:var(--text-secondary);font-size:0.8rem;margin-bottom:16px;">Aktivér/deaktivér felter, giv dem brugerdefinerede navne og placér dem via X/Y + justering.</p>
@@ -227,31 +231,17 @@
               <input id="t-mark-navn" value="Markering" style="flex:1;" onchange="opdaterPreview()">
               <label style="font-size:0.75rem;color:var(--text-secondary);margin:0;white-space:nowrap;">Pos: <input id="t-mark-pos" type="number" min="1" max="4" value="1" style="width:38px;padding:2px 4px;"></label>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1.5fr 1.5fr 1fr;gap:8px;">
-              <div><label>X (mm)</label><input id="t-mark-x" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
-              <div><label>Y (mm)</label><input id="t-mark-y" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;">
+              <div><label>X (mm)</label><input id="t-mark-x" oninput="opdaterPreview()" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
+              <div><label>Y (mm)</label><input id="t-mark-y" oninput="opdaterPreview()" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
               <div><label>Justering</label><select id="t-mark-jus" onchange="opdaterPreview()">
                 <option value="venstre" selected>Venstre</option>
                 <option value="center">Center</option>
                 <option value="hoejre">Højre</option>
               </select></div>
-              <div><label>Skrifttype</label><select id="t-mark-font" onchange="opdaterPreview()" style="border-left:3px solid #3498db;">
-                <option value="">← Fælles font</option>
-                <option value="block">Block (custom)</option>
-                <option value="futural">Sans-serif simpel</option>
-                <option value="romans">Roman simpel</option>
-                <option value="romanc">Roman</option>
-                <option value="romand">Roman duplex</option>
-                <option value="romant">Roman fed</option>
-                <option value="italics">Italic simpel</option>
-                <option value="italiccs">Italic</option>
-                <option value="italict">Italic fed</option>
-                <option value="scriptc">Script</option>
-                <option value="scripts">Script simpel</option>
-                <option value="gothgbt">Gothic fed</option>
-                <option value="gothgrt">Gothic</option>
-              </select></div>
-              <div><label>Størrelse (mm)</label><input id="t-mark-hoejde" type="number" value="" step="0.1" placeholder="Fælles" onchange="opdaterPreview()"></div>
+              <div><label>Skrifttype</label><select id="t-mark-font" onchange="opdaterPreview()" style="border-left:3px solid #3498db;"><option value="">← Fælles font</option></select></div>
+              <div><label>Størrelse (mm)</label><input id="t-mark-hoejde" type="number" value="" step="0.1" placeholder="Fælles" oninput="opdaterPreview()"></div>
+              <div><label title="Ekstra luft mellem bogstaverne. Negativ = tættere.">Bogstavafst. (mm)</label><input id="t-mark-afst" type="number" value="0" step="0.1" oninput="opdaterPreview()"></div>
             </div>
           </div>
           
@@ -261,31 +251,17 @@
               <input id="t-sys-navn" value="System nr" style="flex:1;" onchange="opdaterPreview()">
               <label style="font-size:0.75rem;color:var(--text-secondary);margin:0;white-space:nowrap;">Pos: <input id="t-sys-pos" type="number" min="1" max="4" value="2" style="width:38px;padding:2px 4px;"></label>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1.5fr 1.5fr 1fr;gap:8px;">
-              <div><label>X (mm)</label><input id="t-sys-x" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
-              <div><label>Y (mm)</label><input id="t-sys-y" type="number" value="5" step="0.1" onchange="opdaterPreview()"></div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;">
+              <div><label>X (mm)</label><input id="t-sys-x" oninput="opdaterPreview()" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
+              <div><label>Y (mm)</label><input id="t-sys-y" oninput="opdaterPreview()" type="number" value="5" step="0.1" onchange="opdaterPreview()"></div>
               <div><label>Justering</label><select id="t-sys-jus" onchange="opdaterPreview()">
                 <option value="venstre" selected>Venstre</option>
                 <option value="center">Center</option>
                 <option value="hoejre">Højre</option>
               </select></div>
-              <div><label>Skrifttype</label><select id="t-sys-font" onchange="opdaterPreview()" style="border-left:3px solid #27ae60;">
-                <option value="">← Fælles font</option>
-                <option value="block">Block (custom)</option>
-                <option value="futural">Sans-serif simpel</option>
-                <option value="romans">Roman simpel</option>
-                <option value="romanc">Roman</option>
-                <option value="romand">Roman duplex</option>
-                <option value="romant">Roman fed</option>
-                <option value="italics">Italic simpel</option>
-                <option value="italiccs">Italic</option>
-                <option value="italict">Italic fed</option>
-                <option value="scriptc">Script</option>
-                <option value="scripts">Script simpel</option>
-                <option value="gothgbt">Gothic fed</option>
-                <option value="gothgrt">Gothic</option>
-              </select></div>
-              <div><label>Størrelse (mm)</label><input id="t-sys-hoejde" type="number" value="" step="0.1" placeholder="Fælles" onchange="opdaterPreview()"></div>
+              <div><label>Skrifttype</label><select id="t-sys-font" onchange="opdaterPreview()" style="border-left:3px solid #27ae60;"><option value="">← Fælles font</option></select></div>
+              <div><label>Størrelse (mm)</label><input id="t-sys-hoejde" type="number" value="" step="0.1" placeholder="Fælles" oninput="opdaterPreview()"></div>
+              <div><label title="Ekstra luft mellem bogstaverne. Negativ = tættere.">Bogstavafst. (mm)</label><input id="t-sys-afst" type="number" value="0" step="0.1" oninput="opdaterPreview()"></div>
             </div>
           </div>
           
@@ -295,31 +271,17 @@
               <input id="t-loebe-navn" value="Løbenr" style="flex:1;" onchange="opdaterPreview()">
               <label style="font-size:0.75rem;color:var(--text-secondary);margin:0;white-space:nowrap;">Pos: <input id="t-loebe-pos" type="number" min="1" max="4" value="3" style="width:38px;padding:2px 4px;"></label>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1.5fr 1.5fr 1fr;gap:8px;">
-              <div><label>X (mm)</label><input id="t-loebe-x" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
-              <div><label>Y (mm)</label><input id="t-loebe-y" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;">
+              <div><label>X (mm)</label><input id="t-loebe-x" oninput="opdaterPreview()" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
+              <div><label>Y (mm)</label><input id="t-loebe-y" oninput="opdaterPreview()" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
               <div><label>Justering</label><select id="t-loebe-jus" onchange="opdaterPreview()">
                 <option value="venstre">Venstre</option>
                 <option value="center">Center</option>
                 <option value="hoejre" selected>Højre</option>
               </select></div>
-              <div><label>Skrifttype</label><select id="t-loebe-font" onchange="opdaterPreview()" style="border-left:3px solid #f39c12;">
-                <option value="">← Fælles font</option>
-                <option value="block">Block (custom)</option>
-                <option value="futural">Sans-serif simpel</option>
-                <option value="romans">Roman simpel</option>
-                <option value="romanc">Roman</option>
-                <option value="romand">Roman duplex</option>
-                <option value="romant">Roman fed</option>
-                <option value="italics">Italic simpel</option>
-                <option value="italiccs">Italic</option>
-                <option value="italict">Italic fed</option>
-                <option value="scriptc">Script</option>
-                <option value="scripts">Script simpel</option>
-                <option value="gothgbt">Gothic fed</option>
-                <option value="gothgrt">Gothic</option>
-              </select></div>
-              <div><label>Størrelse (mm)</label><input id="t-loebe-hoejde" type="number" value="" step="0.1" placeholder="Fælles" onchange="opdaterPreview()"></div>
+              <div><label>Skrifttype</label><select id="t-loebe-font" onchange="opdaterPreview()" style="border-left:3px solid #f39c12;"><option value="">← Fælles font</option></select></div>
+              <div><label>Størrelse (mm)</label><input id="t-loebe-hoejde" type="number" value="" step="0.1" placeholder="Fælles" oninput="opdaterPreview()"></div>
+              <div><label title="Ekstra luft mellem bogstaverne. Negativ = tættere.">Bogstavafst. (mm)</label><input id="t-loebe-afst" type="number" value="0" step="0.1" oninput="opdaterPreview()"></div>
             </div>
             <div style="display:flex;gap:16px;align-items:center;margin-top:8px;flex-wrap:wrap;">
               <label style="font-size:0.8rem;display:flex;align-items:center;gap:6px;margin:0;">
@@ -343,42 +305,35 @@
               <input id="t-ekstra-navn" value="Ekstra" style="flex:1;" onchange="opdaterPreview()">
               <label style="font-size:0.75rem;color:var(--text-secondary);margin:0;white-space:nowrap;">Pos: <input id="t-ekstra-pos" type="number" min="1" max="4" value="4" style="width:38px;padding:2px 4px;"></label>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1.5fr 1.5fr 1fr;gap:8px;">
-              <div><label>X (mm)</label><input id="t-ekstra-x" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
-              <div><label>Y (mm)</label><input id="t-ekstra-y" type="number" value="10" step="0.1" onchange="opdaterPreview()"></div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;">
+              <div><label>X (mm)</label><input id="t-ekstra-x" oninput="opdaterPreview()" type="number" value="0" step="0.1" onchange="opdaterPreview()"></div>
+              <div><label>Y (mm)</label><input id="t-ekstra-y" oninput="opdaterPreview()" type="number" value="10" step="0.1" onchange="opdaterPreview()"></div>
               <div><label>Justering</label><select id="t-ekstra-jus" onchange="opdaterPreview()">
                 <option value="venstre" selected>Venstre</option>
                 <option value="center">Center</option>
                 <option value="hoejre">Højre</option>
               </select></div>
-              <div><label>Skrifttype</label><select id="t-ekstra-font" onchange="opdaterPreview()" style="border-left:3px solid #9b59b6;">
-                <option value="">← Fælles font</option>
-                <option value="block">Block (custom)</option>
-                <option value="futural">Sans-serif simpel</option>
-                <option value="romans">Roman simpel</option>
-                <option value="romanc">Roman</option>
-                <option value="romand">Roman duplex</option>
-                <option value="romant">Roman fed</option>
-                <option value="italics">Italic simpel</option>
-                <option value="italiccs">Italic</option>
-                <option value="italict">Italic fed</option>
-                <option value="scriptc">Script</option>
-                <option value="scripts">Script simpel</option>
-                <option value="gothgbt">Gothic fed</option>
-                <option value="gothgrt">Gothic</option>
-              </select></div>
-              <div><label>Størrelse (mm)</label><input id="t-ekstra-hoejde" type="number" value="" step="0.1" placeholder="Fælles" onchange="opdaterPreview()"></div>
+              <div><label>Skrifttype</label><select id="t-ekstra-font" onchange="opdaterPreview()" style="border-left:3px solid #9b59b6;"><option value="">← Fælles font</option></select></div>
+              <div><label>Størrelse (mm)</label><input id="t-ekstra-hoejde" type="number" value="" step="0.1" placeholder="Fælles" oninput="opdaterPreview()"></div>
+              <div><label title="Ekstra luft mellem bogstaverne. Negativ = tættere.">Bogstavafst. (mm)</label><input id="t-ekstra-afst" type="number" value="0" step="0.1" oninput="opdaterPreview()"></div>
             </div>
           </div>
         </div>
         
         <div>
-          <h3 style="margin-bottom:12px;color:var(--accent);">Visualisering</h3>
-          <p style="color:var(--text-secondary);font-size:0.8rem;margin-bottom:16px;">Zone med eksempel-tekst. Kun aktive felter vises.</p>
-          <div style="background:var(--bg-tertiary);padding:16px;border-radius:6px;display:flex;justify-content:center;align-items:center;min-height:250px;">
-            <svg id="felt-preview" width="400" height="300" style="background:#fff;border-radius:4px;"></svg>
+          <h3 style="margin-bottom:12px;color:var(--accent);">Forhåndsvisning</h3>
+          <p style="color:var(--text-secondary);font-size:0.8rem;margin-bottom:10px;">De rigtige gravér-streger i zonen — præcis som maskinen graverer dem. Skriv dine længste tekster for at se om de passer.</p>
+          <div class="eks-grid">
+            <div><label>Markering</label><input id="t-eks-mark" value="L1" oninput="opdaterPreview()" autocomplete="off"></div>
+            <div><label>System nr</label><input id="t-eks-sys" value="A0938E" oninput="opdaterPreview()" autocomplete="off"></div>
+            <div><label>Løbenr</label><input id="t-eks-loebe" value="17" oninput="opdaterPreview()" autocomplete="off"></div>
+            <div><label>Ekstra</label><input id="t-eks-ekstra" value="EKS" oninput="opdaterPreview()" autocomplete="off"></div>
           </div>
-          <p style="color:var(--text-secondary);font-size:0.75rem;margin-top:8px;text-align:center;">1 mm = 8 px</p>
+          <div id="felt-banner" style="margin-top:10px;"></div>
+          <div class="felt-preview-boks">
+            <svg id="felt-preview" role="img" aria-label="Forhåndsvisning af nøglens zone"></svg>
+          </div>
+          <p id="felt-preview-info" class="small muted" style="margin-top:6px;text-align:center;"></p>
         </div>
       </div>
     </div>
@@ -493,7 +448,7 @@
       <button class="btn btn-secondary" onclick="visNyMaskine()">+ Ny maskine</button>
     </div>
     <table class="resp">
-      <thead><tr><th>ID</th><th>Navn</th><th>Model</th><th>Protokol</th><th>IP</th><th>Port</th><th>Forbindelse</th><th>Offset X</th><th>Offset Y</th><th>Offset Z</th><th>Spejl Y</th><th>Handlinger</th></tr></thead>
+      <thead><tr><th>ID</th><th>Navn</th><th>Model</th><th>Protokol</th><th>IP</th><th>Port</th><th>Forbindelse</th><th>Offset X</th><th>Offset Y</th><th>Offset Z</th><th>Spejl Y</th><th>Hastighed</th><th>Handlinger</th></tr></thead>
       <tbody id="maskiner-tabel"></tbody>
     </table>
   </div>
@@ -536,7 +491,16 @@
       </div>
       <div><label>IP</label><input id="m-ip" placeholder="192.168.1.100"></div>
       <div><label>Port</label><input id="m-port" type="number" placeholder="22000"></div>
+      <div>
+        <label>Hastighed (fræsevej)</label>
+        <select id="m-optimering">
+          <option value="fuld">Fuld — færrest penneløft (standard)</option>
+          <option value="let">Let — samme rækkefølge og retning som fonten</option>
+          <option value="ingen">Ingen — præcis som før v6.2</option>
+        </select>
+      </div>
     </div>
+    <p class="small muted" style="margin-top:8px;">Alle niveauer graverer de samme streger. «Fuld» kæder streger der rører hinanden sammen (også baglæns) og tager den nærmeste næste — typisk 20–50 % færre penneløft. Graverer en maskine anderledes end forventet, så vælg «Ingen».</p>
     <div class="mt gap">
       <button class="btn btn-primary" onclick="gemMaskine()">Gem</button>
       <button class="btn btn-secondary" onclick="document.getElementById('maskine-form').style.display='none'">Annuller</button>

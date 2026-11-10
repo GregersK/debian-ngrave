@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS maskiner (
     felt_loebe_dy     REAL NOT NULL DEFAULT 0.0,
     felt_ekstra_dx    REAL NOT NULL DEFAULT 0.0,
     felt_ekstra_dy    REAL NOT NULL DEFAULT 0.0,
+    optimering  TEXT NOT NULL DEFAULT 'fuld',   -- 'ingen' | 'let' | 'fuld' (se workers/optimering.py)
     aktiv       INTEGER DEFAULT 1,
     oprettet    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -81,6 +82,8 @@ CREATE TABLE IF NOT EXISTS templates (
     ekstra_hoejde_mm              REAL NOT NULL DEFAULT 0.0,
     ekstra_bogstav_afstand_mm     REAL NOT NULL DEFAULT 0.0,
     ekstra_position               INTEGER NOT NULL DEFAULT 4,
+    -- 1 = ægte ÆØÅ i Hershey-fonte, 0 = AE/OE/AA som før v6.2 (eksisterende templates)
+    dansk_tegn                    INTEGER NOT NULL DEFAULT 0,
     grid_json            TEXT NOT NULL,
     maskine_id           INTEGER REFERENCES maskiner(id),
     aktiv                INTEGER DEFAULT 1,

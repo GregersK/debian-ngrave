@@ -6,7 +6,7 @@ from contextlib import closing
 from datetime import datetime
 from functools import wraps
 from flask import Flask, request, jsonify, render_template, g, Response
-from workers import forbindelse
+from workers import forbindelse, optimering
 from workers.forbindelse import ForbindelsesFejl
 
 app = Flask(__name__)
@@ -175,6 +175,11 @@ def migrate_db():
         ("skilte_jobs", "linje_afstand_mm",   "REAL"),
         ("skilte_jobs", "fejl_besked",        "TEXT"),
         ("skilte_jobs", "fejl_kode",          "TEXT"),
+        # v6.2 fonte/hastighed. Eksisterende maskiner får den hurtige sti-optimering
+        # (samme streger, færre løft). Eksisterende nøgle-templates beholder AE/OE/AA
+        # (dansk_tegn=0) så de graverer som før; nye templates får ægte ÆØÅ.
+        ("maskiner",    "optimering",         "TEXT NOT NULL DEFAULT 'fuld'"),
+        ("templates",   "dansk_tegn",         "INTEGER NOT NULL DEFAULT 0"),
     ]
     with sqlite3.connect(DB) as db:
         for table, col, typedef in migrations:
@@ -335,6 +340,7 @@ def _koer_naeste_batch(db, mid):
         tmpl['offset_y'] = maskine.get('offset_y', 0.0) or 0.0
         tmpl['offset_z'] = maskine.get('offset_z', 0.0) or 0.0
         tmpl['spejl_y']  = bool(maskine.get('spejl_y', 0))
+        tmpl['optimering'] = optimering.niveau(maskine.get('optimering'))
         for felt in ('markering', 'system', 'loebe', 'ekstra'):
             tmpl[f'felt_{felt}_dx'] = float(maskine.get(f'felt_{felt}_dx') or 0.0)
             tmpl[f'felt_{felt}_dy'] = float(maskine.get(f'felt_{felt}_dy') or 0.0)
@@ -364,7 +370,7 @@ def _koer_naeste_skilt(db, mid):
     # LEFT JOIN skilt_templates så feed/rpm/z_op fra template'en sendes med til
     # worker'en. Fri-form skilte uden template -> NULL -> standardkonstanter.
     skilt = db.execute("""
-        SELECT s.*, m.ip, m.port, m.protokol,
+        SELECT s.*, m.ip, m.port, m.protokol, m.optimering,
                st.feed_xy, st.feed_z, st.spindle_rpm, st.z_op_mm, st.prox_offset_mm
         FROM skilte_jobs s
         JOIN maskiner m ON s.maskine_id = m.id
@@ -388,7 +394,9 @@ def _koer_naeste_skilt(db, mid):
             raise ValueError("Skilte kan kun graveres på maskiner med G-code (S5) — ikke CIPHER (S3)")
         from workers.skilt_worker import byg_skilt
         from workers.gcode_worker import send
-        gcode = byg_skilt(dict(skilt))
+        spec = dict(skilt)
+        spec['optimering'] = optimering.niveau(spec.get('optimering'))
+        gcode = byg_skilt(spec)
         _send_med_retry(mid, send, gcode, skilt['ip'], skilt['port'], note)
         db.execute("UPDATE skilte_jobs SET status='done', faerdig=?, fejl_besked=NULL WHERE id=?",
                    (datetime.now(), skilt_id))
@@ -401,6 +409,16 @@ def _koer_naeste_skilt(db, mid):
             app.logger.exception("Skilt %s fejl: %s", skilt_id, e)
     db.commit()
     return True
+
+def _varm_fonte():
+    """Indlæs alle skrifttyper i baggrunden ved opstart (~½ s), så første
+    forhåndsvisning / font-galleri ikke venter på det."""
+    try:
+        from workers.font_manager import INFO, get_strokes
+        for fid in INFO:
+            get_strokes('Aa Æøå 1', 10.0, fid)
+    except Exception:
+        app.logger.exception("Font-opvarmning fejlede")
 
 # ─── Online-kontrol ───────────────────────────────────────────────────────────
 def _probe_alle(rolig_sek):
@@ -456,9 +474,10 @@ def create_maskine():
         return jsonify({'ok': False, 'fejl': 'Ugyldig protokol (gcode/cipher)'}), 400
     db = get_db()
     cur = db.execute("""
-        INSERT INTO maskiner (navn, model, ip, port, protokol)
-        VALUES (?,?,?,?,?)
-    """, (d['navn'], d['model'], d['ip'], int(d['port']), d['protokol']))
+        INSERT INTO maskiner (navn, model, ip, port, protokol, optimering)
+        VALUES (?,?,?,?,?,?)
+    """, (d['navn'], d['model'], d['ip'], int(d['port']), d['protokol'],
+          optimering.niveau(d.get('optimering'))))
     db.commit()
     return jsonify({'ok': True, 'id': cur.lastrowid})
 
@@ -467,9 +486,12 @@ def create_maskine():
 def update_maskine(id):
     d = request.json or {}
     db = get_db()
+    # optimering udeladt (ældre klient) → behold den gemte værdi
+    opt = optimering.niveau(d['optimering']) if d.get('optimering') else None
     db.execute("""
-        UPDATE maskiner SET navn=?, model=?, ip=?, port=?, protokol=? WHERE id=?
-    """, (d.get('navn'), d.get('model'), d.get('ip'), int(d.get('port', 0)), d.get('protokol'), id))
+        UPDATE maskiner SET navn=?, model=?, ip=?, port=?, protokol=?,
+                            optimering=COALESCE(?, optimering) WHERE id=?
+    """, (d.get('navn'), d.get('model'), d.get('ip'), int(d.get('port', 0)), d.get('protokol'), opt, id))
     db.commit()
     return jsonify({'ok': True})
 
@@ -567,8 +589,10 @@ def create_template():
                 ekstra_aktiv, ekstra_navn, ekstra_x, ekstra_y, ekstra_justering, ekstra_font, ekstra_hoejde_mm,
                 loebe_min_laengde, loebe_prefix_aktiv, loebe_suffix_aktiv,
                 markering_position, system_position, loebe_position, ekstra_position,
-                grid_json, maskine_id
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                grid_json, maskine_id, dansk_tegn,
+                markering_bogstav_afstand_mm, system_bogstav_afstand_mm,
+                loebe_bogstav_afstand_mm, ekstra_bogstav_afstand_mm
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (d['navn'], d.get('beskrivelse',''), d.get('noejle_type',''),
               d['zone_bredde_mm'], d['zone_hoejde_mm'], d['tekst_hoejde_mm'], d['linje_afstand'],
               d['feed_xy'], d['feed_z'], d['spindle_rpm'], d['z_op_mm'], d['prox_offset_mm'], d.get('font') or 'block',
@@ -582,7 +606,9 @@ def create_template():
               d.get('ekstra_x',0), d.get('ekstra_y',10), d.get('ekstra_justering','venstre'), d.get('ekstra_font') or 'block', d.get('ekstra_hoejde_mm',0) or 0,
               int(d.get('loebe_min_laengde', 0)), int(d.get('loebe_prefix_aktiv', 0)), int(d.get('loebe_suffix_aktiv', 0)),
               int(d.get('markering_position', 1)), int(d.get('system_position', 2)), int(d.get('loebe_position', 3)), int(d.get('ekstra_position', 4)),
-              json.dumps(d.get('grid', {"kolonner":0,"raekker":0,"slots":[]})), d.get('maskine_id')))
+              json.dumps(d.get('grid', {"kolonner":0,"raekker":0,"slots":[]})), d.get('maskine_id'),
+              1 if d.get('dansk_tegn', 1) else 0,      # nye templates: ægte ÆØÅ
+              *[float(d.get(f'{p}_bogstav_afstand_mm') or 0) for p in ('markering', 'system', 'loebe', 'ekstra')]))
         db.commit()
         return jsonify({'ok': True, 'id': cur.lastrowid})
     except Exception as e:
@@ -606,7 +632,12 @@ def update_template(id):
                 ekstra_aktiv=?, ekstra_navn=?, ekstra_x=?, ekstra_y=?, ekstra_justering=?, ekstra_font=?, ekstra_hoejde_mm=?,
                 loebe_min_laengde=?, loebe_prefix_aktiv=?, loebe_suffix_aktiv=?,
                 markering_position=?, system_position=?, loebe_position=?, ekstra_position=?,
-                grid_json=?, maskine_id=?
+                grid_json=?, maskine_id=?,
+                dansk_tegn=COALESCE(?, dansk_tegn),
+                markering_bogstav_afstand_mm=COALESCE(?, markering_bogstav_afstand_mm),
+                system_bogstav_afstand_mm=COALESCE(?, system_bogstav_afstand_mm),
+                loebe_bogstav_afstand_mm=COALESCE(?, loebe_bogstav_afstand_mm),
+                ekstra_bogstav_afstand_mm=COALESCE(?, ekstra_bogstav_afstand_mm)
             WHERE id=?
         """, (d['navn'], d.get('beskrivelse',''), d.get('noejle_type',''),
               d['zone_bredde_mm'], d['zone_hoejde_mm'], d['tekst_hoejde_mm'], d['linje_afstand'],
@@ -622,7 +653,12 @@ def update_template(id):
               int(d.get('loebe_min_laengde', 0)), int(d.get('loebe_prefix_aktiv', 0)), int(d.get('loebe_suffix_aktiv', 0)),
               int(d.get('markering_position', 1)), int(d.get('system_position', 2)), int(d.get('loebe_position', 3)), int(d.get('ekstra_position', 4)),
               json.dumps(d.get('grid', {"kolonner":0,"raekker":0,"slots":[]})),
-              d.get('maskine_id'), id))
+              d.get('maskine_id'),
+              # Felter en ældre klient ikke sender, bevares som de er (None → COALESCE).
+              None if 'dansk_tegn' not in d else (1 if d['dansk_tegn'] else 0),
+              *[None if f'{p}_bogstav_afstand_mm' not in d else float(d[f'{p}_bogstav_afstand_mm'] or 0)
+                for p in ('markering', 'system', 'loebe', 'ekstra')],
+              id))
         db.commit()
         return jsonify({'ok': True})
     except Exception as e:
@@ -946,8 +982,14 @@ def _skilt_spec(d):
 def preview_skilt():
     """Præcis det layout der graveres (samme motor), inkl. fejl/advarsler."""
     from workers.skilt_worker import layout_skilt
+    d = request.json or {}
     try:
-        lay = layout_skilt(_skilt_spec(request.json or {}))
+        spec = _skilt_spec(d)
+        if d.get('maskine_id') not in (None, ''):
+            m = get_db().execute("SELECT optimering FROM maskiner WHERE id=?", (int(d['maskine_id']),)).fetchone()
+            if m:
+                spec['optimering'] = optimering.niveau(m['optimering'])   # penneløft som maskinen vil køre
+        lay = layout_skilt(spec)
     except (KeyError, ValueError, TypeError):
         return jsonify({'ok': False, 'fejl': ['Ugyldig størrelse'], 'advarsler': [], 'linjer': []}), 400
     for l in lay['linjer']:
@@ -1072,24 +1114,176 @@ def get_status():
 @app.route('/api/fonts')
 @require_auth
 def get_fonts():
+    """Skrifttyperne i menuen (id -> navn), i visningsrækkefølge."""
     from workers.font_manager import FONTS
     return jsonify(FONTS)
+
+@app.route('/api/fonts/info')
+@require_auth
+def get_fonts_info():
+    """Alle skrifttyper inkl. skjulte dubletter og gamle id'er, med gruppe —
+    så GUI'en kan vise hvad en ældre template bruger uden at ændre det."""
+    from workers.font_manager import INFO, ALLE_NAVNE
+    return jsonify({
+        'fonte': [{'id': i['id'], 'navn': i['navn'], 'gruppe': i['gruppe'], 'skjult': i['skjult'],
+                   'dublet_af': i.get('dublet_af')} for i in INFO.values()],
+        'navne': ALLE_NAVNE,
+    })
 
 @app.route('/api/fonts/prove')
 @require_auth
 def fonts_prove():
-    """Prøvetekst i ALLE skrifttyper (de faktiske gravér-streger) til galleriet.
+    """Prøvetekst i ALLE synlige skrifttyper (de faktiske gravér-streger) til galleriet,
+    med antal penneløft og fræsevej (efter den hurtige optimering) som mål for tid.
     Koordinater i mm ved 10 mm teksthøjde; SVG-orienteret (baseline y=0, op = negativ)."""
-    from workers.font_manager import FONTS, get_strokes
+    from workers.font_manager import FONTS, INFO, get_strokes
     tekst = (request.args.get('tekst') or 'Aa Bb Æøå 123').strip()[:24] or 'Aa'
     out = {}
     for key, navn in FONTS.items():
         strokes, w = get_strokes(tekst, 10.0, key)
-        out[key] = {'navn': navn, 'bredde': round(w, 2),
-                    'paths': [[[round(x, 2), round(-y, 2)] for x, y in st] for st in strokes if st]}
+        st = optimering.statistik(optimering.optimer(strokes, optimering.STANDARD))
+        out[key] = {'navn': navn, 'gruppe': INFO[key]['gruppe'], 'bredde': round(w, 2),
+                    'loeft': st['loeft'], 'fraesevej_mm': st['fraesevej_mm'],
+                    'paths': [[[round(x, 2), round(-y, 2)] for x, y in st_] for st_ in strokes if st_]}
     resp = jsonify(out)
     resp.headers['Cache-Control'] = 'private, max-age=600'
     return resp
+
+# ─── Nøgler: forhåndsvisning og bredde-kontrol ─────────────────────────────
+NOEGLE_EPS = 0.05     # mm tolerance
+
+def _tal(v, standard=0.0):
+    try:
+        return standard if v is None or v == '' else float(v)
+    except (TypeError, ValueError):
+        return standard
+
+def _tmpl_fra_form(d):
+    """Template-felter fra nøgle-template-formularen (samme navne som DB-kolonnerne)."""
+    t = {'zone_bredde_mm': _tal(d.get('zone_bredde_mm'), 18.0), 'zone_hoejde_mm': _tal(d.get('zone_hoejde_mm'), 8.0),
+         'tekst_hoejde_mm': _tal(d.get('tekst_hoejde_mm'), 3.5) or 3.5, 'font': d.get('font') or 'block',
+         'dansk_tegn': 1 if d.get('dansk_tegn', 1) else 0}
+    for p, (dx, dy, jus, aktiv) in {'markering': (0, 0, 'venstre', 1), 'system': (0, 5, 'venstre', 1),
+                                    'loebe': (0, 0, 'hoejre', 1), 'ekstra': (0, 10, 'venstre', 0)}.items():
+        t[f'{p}_aktiv'] = 1 if d.get(f'{p}_aktiv', aktiv) else 0
+        t[f'{p}_x'] = _tal(d.get(f'{p}_x'), dx)
+        t[f'{p}_y'] = _tal(d.get(f'{p}_y'), dy)
+        t[f'{p}_justering'] = d.get(f'{p}_justering') or jus
+        t[f'{p}_font'] = d.get(f'{p}_font') or None
+        t[f'{p}_hoejde_mm'] = _tal(d.get(f'{p}_hoejde_mm'), 0.0)
+        t[f'{p}_bogstav_afstand_mm'] = _tal(d.get(f'{p}_bogstav_afstand_mm'), 0.0)
+    return t
+
+def _noegle_layout(tmpl, job, niveau=None):
+    """Felterne på én nøgle i zone-koordinater (x mod højre, y NEDAD, mm) — samme
+    motor som graveringen (gcode_worker.felt_layout). Fejl = vandret uden for
+    zonen; advarsler = lodret uden for zonen og tegn fonten ikke har.
+
+    Lodret: G-coden lægger feltets baseline i y. Zonens top tegnes i y = -tekst-
+    højden, så et felt i den fælles højde med y=0 står øverst i zonen (som
+    templates altid er blevet tegnet)."""
+    from workers.gcode_worker import felt_layout
+    from workers.font_manager import manglende_tegn
+    zw, zh, th = tmpl['zone_bredde_mm'], tmpl['zone_hoejde_mm'], tmpl['tekst_hoejde_mm']
+    top, bund = -th, zh - th
+    felter, fejl, advarsler, lodret, alle = [], [], [], [], []
+    for f in felt_layout(job, tmpl):
+        paths = [[[round(f['x'] + x, 3), round(f['y'] - y, 3)] for x, y in st] for st in f['strokes'] if st]
+        bbox = None
+        if paths:
+            xs = [p[0] for st in paths for p in st]
+            ys = [p[1] for st in paths for p in st]
+            bbox = [min(xs), min(ys), max(xs), max(ys)]
+            navn = tmpl.get(f"{f['felt']}_navn") or f['felt']
+            if bbox[0] < -NOEGLE_EPS:
+                fejl.append(f"{navn} «{f['tekst']}» rager {-bbox[0]:.1f} mm ud til venstre for zonen")
+            if bbox[2] > zw + NOEGLE_EPS:
+                fejl.append(f"{navn} «{f['tekst']}» rager {bbox[2] - zw:.1f} mm ud til højre for zonen "
+                            f"(zonen er {zw:g} mm bred)")
+            if bbox[1] < top - NOEGLE_EPS or bbox[3] > bund + NOEGLE_EPS:
+                ud = max(top - bbox[1], bbox[3] - bund)
+                lodret.append(f"{navn} «{f['tekst']}» ligger {ud:.1f} mm uden for zonens højde — tjek Y")
+        mangler = manglende_tegn(f['tekst'], f['font'])
+        if mangler:
+            advarsler.append(f"Tegn der springes over i {f['felt']}: {' '.join(mangler)}")
+        alle += [[(f['x'] + x, -f['y'] + y) for x, y in st] for st in f['strokes'] if st]
+        felter.append({'felt': f['felt'], 'tekst': f['tekst'], 'font': f['font'], 'hoejde_mm': f['hoejde_mm'],
+                       'x': round(f['x'], 3), 'y': round(f['y'], 3), 'paths': paths, 'bbox': bbox})
+    st = optimering.statistik(optimering.optimer(alle, optimering.niveau(niveau)))
+    return {'ok': not fejl, 'fejl': fejl, 'advarsler': advarsler, 'lodret': lodret, 'felter': felter,
+            'zone': {'bredde': zw, 'hoejde': zh, 'top': top}, 'statistik': st}
+
+@app.route('/api/templates/preview', methods=['POST'])
+@require_auth
+def preview_template():
+    """Forhåndsvisning af en nøgle-template med eksempeltekst — de rigtige gravér-streger."""
+    d = request.json or {}
+    tmpl = _tmpl_fra_form(d)
+    for p in ('markering', 'system', 'loebe', 'ekstra'):
+        tmpl[f'{p}_navn'] = d.get(f'{p}_navn') or p
+    eks = d.get('eksempel') or {}
+    job = {'type_felt': eks.get('type_felt', 'L1'), 'system_nr': eks.get('system_nr', 'A0938E'),
+           'loebe_nr': eks.get('loebe_nr', '17'), 'ekstra_tekst': eks.get('ekstra_tekst', 'EKS')}
+    lay = _noegle_layout(tmpl, job)
+    # Lodret placering kalibreres på maskinen (slot-Y / offset), så den er kun en
+    # advarsel her i template-editoren — ikke noget der stopper en ordre.
+    lay['advarsler'] = lay['lodret'] + lay['advarsler']
+    return jsonify(lay)
+
+def _loebe_tekster(tmpl, d):
+    """De løbenumre en ordre vil gravere (samme formatering som create_batch)."""
+    if not tmpl['loebe_aktiv']:
+        return ['']
+    try:
+        fra, til = int(d.get('loebe_fra', 1)), int(d.get('loebe_til', 1))
+    except (TypeError, ValueError):
+        return []
+    if til < fra:
+        return []
+    pre = (d.get('loebe_prefix') or '').strip() if tmpl['loebe_prefix_aktiv'] else ''
+    suf = (d.get('loebe_suffix') or '').strip() if tmpl['loebe_suffix_aktiv'] else ''
+    mn = int(tmpl['loebe_min_laengde'] or 0)
+    tal = range(fra, til + 1) if til - fra < MAX_EMNER_PR_ORDRE else (fra, til)   # for stor ordre afvises senere
+    return [f"{pre}{str(n).zfill(mn) if mn > 0 else n}{suf}" for n in tal]
+
+@app.route('/api/batches/tjek', methods=['POST'])
+@require_auth
+def tjek_batch():
+    """Før en ordre oprettes: passer teksterne i zonen med templatens fonte?
+    Opretter intet — GUI'en spørger brugeren hvis der er problemer."""
+    d = request.json or {}
+    try:
+        tmpl_row = get_db().execute("SELECT * FROM templates WHERE id=?", (int(d['template_id']),)).fetchone()
+    except (KeyError, TypeError, ValueError):
+        return jsonify({'ok': False, 'fejl': ['Vælg en template'], 'advarsler': []}), 400
+    if not tmpl_row:
+        return jsonify({'ok': False, 'fejl': ['Template findes ikke'], 'advarsler': []}), 404
+    tmpl = dict(tmpl_row)
+    faste = {'type_felt': d.get('type_felt', '') if tmpl['markering_aktiv'] else '',
+             'system_nr': d.get('system_nr', '') if tmpl['system_aktiv'] else '',
+             'ekstra_tekst': d.get('ekstra_tekst', '') if tmpl['ekstra_aktiv'] else ''}
+    loebe = _loebe_tekster(tmpl, d) or ['']
+    lay = _noegle_layout(tmpl, {**faste, 'loebe_nr': loebe[0]})
+    advarsler = list(lay['advarsler'])
+    lnavn = tmpl.get('loebe_navn') or 'Løbenr'
+    fejl = [f for f in lay['fejl'] if not f.startswith(lnavn + ' «')]
+    # Løbenumrene varierer — tjek dem alle og meld det værste (kun løbe-feltet).
+    if tmpl['loebe_aktiv']:
+        from workers.gcode_worker import felt_layout
+        kun = {**tmpl, 'markering_aktiv': 0, 'system_aktiv': 0, 'ekstra_aktiv': 0}
+        zw = tmpl['zone_bredde_mm']
+        vaerst = None
+        for t in dict.fromkeys(loebe):
+            for f in felt_layout({'loebe_nr': t}, kun):
+                xs = [f['x'] + x for st in f['strokes'] for x, _ in st]
+                if xs:
+                    ud = max(-min(xs), max(xs) - zw)
+                    if ud > NOEGLE_EPS and (vaerst is None or ud > vaerst[0] + 1e-9):
+                        vaerst = (ud, t)
+        if vaerst:
+            fejl.append(f"{lnavn} «{vaerst[1]}» rager {vaerst[0]:.1f} mm ud over zonen "
+                        f"(zonen er {zw:g} mm bred)")
+    return jsonify({'ok': not fejl, 'fejl': fejl, 'advarsler': advarsler})
 
 # ─── Backup: eksport/import af templates ───────────────────────────────────
 # Kolonner der er PORTABLE på tværs af maskiner (dvs. ikke id/maskine_id/aktiv/
@@ -1112,7 +1306,7 @@ TEMPLATE_EXPORT_COLS = [
     'ekstra_aktiv', 'ekstra_navn', 'ekstra_x', 'ekstra_y',
     'ekstra_justering', 'ekstra_font', 'ekstra_hoejde_mm',
     'ekstra_bogstav_afstand_mm', 'ekstra_position',
-    'grid_json',
+    'grid_json', 'dansk_tegn',
 ]
 SKILT_TEMPLATE_EXPORT_COLS = [
     'navn', 'beskrivelse', 'skilt_bredde_mm', 'skilt_hoejde_mm',
@@ -1282,6 +1476,7 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, _handle_signal)
     threading.Thread(target=queue_worker, name='koe-dispatcher', daemon=True).start()
     threading.Thread(target=probe_loop, name='maskine-probe', daemon=True).start()
+    threading.Thread(target=_varm_fonte, name='font-opvarmning', daemon=True).start()
 
     # Standard-port er 80. Kan vi ikke binde den (fx non-root uden
     # CAP_NET_BIND_SERVICE), falder vi tilbage til 8080 i stedet for at crashe.

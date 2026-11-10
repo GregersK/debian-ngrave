@@ -1,78 +1,44 @@
-// ─── Visualisering af felt-placering ────────────────────────────────────────────
-function opdaterPreview() {
+// ─── Forhåndsvisning af nøgle-template (de rigtige gravér-streger) ────────────
+// Serveren lægger felterne ud med SAMME motor som graveringen (/api/templates/preview),
+// så det man ser er det der graveres — inkl. skrifttype, ÆØÅ og bogstavafstand.
+const FELT_FARVER = { markering: '#2f80ed', system: '#27ae60', loebe: '#e08e0b', ekstra: '#9b59b6' };
+let _tPrevSeq = 0;
+
+const opdaterPreview = debounce(async () => {
   const svg = document.getElementById('felt-preview');
-  if (!svg) return;
-  
-  const zoneB = +document.getElementById('t-bredde').value || 18;
-  const zoneH = +document.getElementById('t-hoejde').value || 8;
-  const th = +document.getElementById('t-th').value || 3.5;
-  
-  const felter = [
-    { aktiv: document.getElementById('t-mark-aktiv').checked,  navn: document.getElementById('t-mark-navn').value || 'Markering',
-      tekst: 'L1', x: +document.getElementById('t-mark-x').value, y: +document.getElementById('t-mark-y').value,
-      jus: document.getElementById('t-mark-jus').value, color: '#3498db',
-      font: document.getElementById('t-mark-font').value || 'block',
-      fth: +document.getElementById('t-mark-hoejde').value || th },
-    { aktiv: document.getElementById('t-sys-aktiv').checked, navn: document.getElementById('t-sys-navn').value || 'System',
-      tekst: 'A0938E', x: +document.getElementById('t-sys-x').value, y: +document.getElementById('t-sys-y').value,
-      jus: document.getElementById('t-sys-jus').value, color: '#27ae60',
-      font: document.getElementById('t-sys-font').value || 'block',
-      fth: +document.getElementById('t-sys-hoejde').value || th },
-    { aktiv: document.getElementById('t-loebe-aktiv').checked, navn: document.getElementById('t-loebe-navn').value || 'Løbenr',
-      tekst: '1', x: +document.getElementById('t-loebe-x').value, y: +document.getElementById('t-loebe-y').value,
-      jus: document.getElementById('t-loebe-jus').value, color: '#f39c12',
-      font: document.getElementById('t-loebe-font').value || 'block',
-      fth: +document.getElementById('t-loebe-hoejde').value || th },
-    { aktiv: document.getElementById('t-ekstra-aktiv').checked, navn: document.getElementById('t-ekstra-navn').value || 'Ekstra',
-      tekst: 'EKS', x: +document.getElementById('t-ekstra-x').value, y: +document.getElementById('t-ekstra-y').value,
-      jus: document.getElementById('t-ekstra-jus').value, color: '#9b59b6',
-      font: document.getElementById('t-ekstra-font').value || 'block',
-      fth: +document.getElementById('t-ekstra-hoejde').value || th },
-  ];
-  
-  const scale = 8;
-  const pad = 30;
-  const zoneW_px = zoneB * scale;
-  const zoneH_px = zoneH * scale + 60;
-  const svgW = Math.max(zoneW_px + pad * 2, 400);
-  const svgH = Math.max(zoneH_px + pad * 2, 250);
-  
-  svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
-  svg.setAttribute('width', svgW);
-  svg.setAttribute('height', svgH);
-  
-  function calcX(offsetX, tekst, jus) {
-    const tw = tekst.length * th * 0.6;
-    if (jus === 'hoejre') return offsetX + zoneB - tw;
-    if (jus === 'center') return offsetX + (zoneB - tw) / 2;
-    return offsetX;
-  }
-  
-  const zoneX0 = pad;
-  const zoneY0 = pad;
-  
-  let html = '';
-  html += `<rect x="${zoneX0}" y="${zoneY0}" width="${zoneW_px}" height="${zoneH*scale}" fill="#e0e0e0" stroke="#999" stroke-dasharray="4,2"/>`;
-  html += `<rect x="${zoneX0}" y="${zoneY0 + zoneH*scale}" width="${zoneW_px}" height="60" fill="#f5f5f5" stroke="#ccc" stroke-dasharray="2,2"/>`;
-  
-  felter.forEach(f => {
-    if (!f.aktiv) return;
-    const fth = f.fth || th;
-    const cssFont = fontTilCSS(f.font);
-    const isItalic = fontErItalic(f.font);
-    const fx = calcX(f.x, f.tekst, f.jus);
-    const yPos = zoneY0 + f.y * scale + fth * scale;
-    html += `<text x="${zoneX0 + fx*scale}" y="${yPos}" font-size="${fth*scale}" fill="${f.color}" font-family="${cssFont}" font-style="${isItalic?'italic':'normal'}">${f.tekst}</text>`;
-    html += `<circle cx="${zoneX0 + fx*scale}" cy="${yPos}" r="3" fill="${f.color}"/>`;
-    html += `<text x="${zoneX0 + fx*scale + 8}" y="${yPos - fth*scale - 2}" font-size="8" fill="${f.color}" font-family="sans-serif">${esc(f.navn)}</text>`;
+  if (!svg || !$('template-form') || $('template-form').style.display === 'none') return;
+  const seq = ++_tPrevSeq;
+  const data = templateFormData();
+  data.eksempel = {
+    type_felt: ($('t-eks-mark').value || '').toUpperCase(), system_nr: ($('t-eks-sys').value || '').toUpperCase(),
+    loebe_nr: $('t-eks-loebe').value || '', ekstra_tekst: ($('t-eks-ekstra').value || '').toUpperCase(),
+  };
+  let lay;
+  try { lay = await api('/api/templates/preview', 'POST', data); } catch (e) { return; }
+  if (seq !== _tPrevSeq || !lay || !lay.zone) return;
+
+  const z = lay.zone, pad = Math.max(z.bredde, z.hoejde) * 0.12 + 1;
+  let x0 = -pad, y0 = z.top - pad, x1 = z.bredde + pad, y1 = z.top + z.hoejde + pad;
+  lay.felter.forEach((f) => { if (f.bbox) { x0 = Math.min(x0, f.bbox[0] - 1); y0 = Math.min(y0, f.bbox[1] - 2.2); x1 = Math.max(x1, f.bbox[2] + 1); y1 = Math.max(y1, f.bbox[3] + 1); } });
+  svg.setAttribute('viewBox', `${x0} ${y0} ${x1 - x0} ${y1 - y0}`);
+  const navne = { markering: $('t-mark-navn').value, system: $('t-sys-navn').value, loebe: $('t-loebe-navn').value, ekstra: $('t-ekstra-navn').value };
+  const fs = Math.max(0.9, z.hoejde * 0.09);
+  let h = `<rect class="zone" x="0" y="${z.top}" width="${z.bredde}" height="${z.hoejde}" rx="0.4"/>`;
+  lay.felter.forEach((f) => {
+    const farve = FELT_FARVER[f.felt] || '#333';
+    const d = f.paths.map((p) => 'M' + p.map((pt) => pt[0] + ' ' + pt[1]).join('L')).join('');
+    h += `<path d="${d}" fill="none" stroke="${farve}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
+    if (f.bbox) h += `<text x="${f.bbox[0]}" y="${f.bbox[1] - 0.5}" font-size="${fs}" fill="${farve}" font-family="system-ui,sans-serif">${esc(navne[f.felt] || f.felt)}</text>`;
   });
-  
-  html += `<circle cx="${zoneX0}" cy="${zoneY0}" r="4" fill="#e94560" stroke="#fff" stroke-width="1"/>`;
-  html += `<text x="${zoneX0 - 25}" y="${zoneY0 - 5}" font-size="10" fill="#666">0,0</text>`;
-  html += `<text x="${zoneX0 + zoneW_px/2}" y="${zoneY0 - 8}" font-size="10" fill="#666" text-anchor="middle">Zone: ${zoneB}×${zoneH} mm</text>`;
-  
-  svg.innerHTML = html;
-}
+  svg.innerHTML = h;
+
+  const b = $('felt-banner');
+  if (lay.fejl.length) b.innerHTML = `<div class="banner fejl"><b>Passer ikke i zonen</b><ul>${lay.fejl.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>`;
+  else if (lay.advarsler.length) b.innerHTML = `<div class="banner advarsel"><b>Tjek lige</b><ul>${lay.advarsler.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>`;
+  else b.innerHTML = lay.felter.length ? '<div class="banner ok">✓ Alle felter passer i zonen</div>' : '';
+  const st = lay.statistik || {};
+  $('felt-preview-info').textContent = `Zone ${z.bredde} × ${z.hoejde} mm · pr. nøgle: ${st.loeft ?? 0} penneløft, ${Math.round(st.fraesevej_mm || 0)} mm fræsevej`;
+}, 150);
 
 // ─── Skilt-Templates ──────────────────────────────────────────────────────────
 async function testMaskine() {
@@ -99,13 +65,14 @@ async function testMaskine() {
 async function hentMaskiner() {
   const rows = await api('/api/maskiner');
   document.getElementById('maskiner-tabel').innerHTML = rows.length === 0
-    ? `<tr><td colspan="12" class="tomt"><span class="stor">⚙</span>Ingen maskiner endnu.<br><button class="btn btn-secondary btn-sm mt" onclick="visNyMaskine()">+ Tilføj den første maskine</button></td></tr>`
+    ? `<tr><td colspan="13" class="tomt"><span class="stor">⚙</span>Ingen maskiner endnu.<br><button class="btn btn-secondary btn-sm mt" onclick="visNyMaskine()">+ Tilføj den første maskine</button></td></tr>`
     : rows.map(r => `<tr>
     <td data-label="ID">#${r.id}</td><td data-label="Navn"><b>${esc(r.navn)}</b></td><td data-label="Model">${esc(r.model)}</td>
     <td data-label="Protokol">${esc(r.protokol)}</td><td data-label="IP">${esc(r.ip)}</td><td data-label="Port">${r.port}</td>
     <td data-label="Forbindelse" id="ms-${r.id}"><span class="ms ukendt"><span class="dot"></span>Tjekker…</span></td>
     <td data-label="Offset X">${r.offset_x || 0} mm</td><td data-label="Offset Y">${r.offset_y || 0} mm</td><td data-label="Offset Z">${r.offset_z || 0} mm</td>
     <td data-label="Spejl Y">${r.spejl_y ? '✓' : '—'}</td>
+    <td data-label="Hastighed">${esc({ fuld: 'Fuld', let: 'Let', ingen: 'Ingen' }[r.optimering] || 'Fuld')}</td>
     <td class="act">
       <button class="btn btn-secondary btn-sm" onclick="pingMaskine(${r.id})" title="Opretter og lukker en forbindelse — sender ingen data">Tjek nu</button>
       <button class="btn btn-secondary btn-sm" onclick="redigerMaskine(${r.id})">Rediger</button>
@@ -156,6 +123,7 @@ function visNyMaskine() {
   document.getElementById('m-protokol').value = 'gcode';
   document.getElementById('m-ip').value = '';
   document.getElementById('m-port').value = '22000';
+  document.getElementById('m-optimering').value = 'fuld';
   document.getElementById('m-status').textContent = '';
   document.getElementById('maskine-form').style.display = 'block';
   document.getElementById('maskine-form').scrollIntoView({behavior:'smooth'});
@@ -172,6 +140,7 @@ async function redigerMaskine(id) {
   document.getElementById('m-protokol').value = r.protokol || 'gcode';
   document.getElementById('m-ip').value = r.ip || '';
   document.getElementById('m-port').value = r.port || '';
+  document.getElementById('m-optimering').value = r.optimering || 'fuld';
   document.getElementById('m-status').textContent = '';
   document.getElementById('maskine-form').style.display = 'block';
   document.getElementById('maskine-form').scrollIntoView({behavior:'smooth'});
@@ -185,6 +154,7 @@ async function gemMaskine() {
     protokol: document.getElementById('m-protokol').value,
     ip: document.getElementById('m-ip').value.trim(),
     port: +document.getElementById('m-port').value,
+    optimering: document.getElementById('m-optimering').value,
   };
   if (!data.navn || !data.model || !data.ip || !data.port) {
     document.getElementById('m-status').textContent = '✗ Udfyld alle felter';

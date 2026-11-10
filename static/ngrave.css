@@ -204,6 +204,17 @@ svg .ramme-fejl { fill: rgba(224,49,49,.07); stroke: #e03131; stroke-width: 1px;
 .font-tile.valgt { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .font-tile svg { width: 100%; height: 54px; display: block; }
 .font-tile .fnavn { font-size: .76rem; margin-top: 4px; color: #555; }
+.font-tile .fmaal { font-size: .7rem; color: #777; margin-top: 2px; }
+.font-tile .hurtig { display: inline-block; background: #1e9e57; color: #fff; border-radius: 6px; padding: 0 5px; font-size: .64rem; margin-left: 3px; }
+.font-gruppe { font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-secondary); margin: 14px 0 6px; }
+.font-gruppe:first-of-type { margin-top: 0; }
+/* Nøgle-template: forhåndsvisning med de rigtige streger */
+.felt-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 760px) { .felt-layout { grid-template-columns: minmax(0, 1fr); } }
+.eks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+.felt-preview-boks { background: var(--bg-tertiary); padding: 12px; border-radius: 8px; margin-top: 10px; }
+#felt-preview { width: 100%; height: auto; min-height: 160px; max-height: 360px; display: block; background: var(--skilt-bg); border-radius: 6px; }
+#felt-preview .zone { fill: #fff; fill-opacity: .55; stroke: #8a94a8; stroke-width: 1.2px; stroke-dasharray: 5 3; vector-effect: non-scaling-stroke; }
 
 .plade-wrap { background: var(--bg-tertiary); border-radius: 10px; padding: 10px; margin-top: 12px; }
 .plade-wrap svg { display: block; width: 100%; max-width: 620px; height: auto; max-height: 280px; margin: 0 auto; }

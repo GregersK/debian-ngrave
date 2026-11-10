@@ -9,7 +9,8 @@ Koordinater: skiltets origin er øverste venstre hjørne, X mod højre, Y NEDAD
 fra baseline (mod mindre y), og nedstrygere (g, j, y, script) rager under den.
 """
 import json
-from .font_manager import get_strokes
+from .font_manager import get_strokes, manglende_tegn
+from .optimering import optimer, statistik
 
 MM = 1 / 25.4
 EPS = 0.05            # mm tolerance ved bounds-check
@@ -53,18 +54,6 @@ def _num(v, default=None):
         return float(v)
     except (TypeError, ValueError):
         return default
-
-
-def _ugyldige_tegn(tekst, th, font):
-    """Tegn (ikke mellemrum) som skrifttypen ikke kan gravere."""
-    out = []
-    for ch in dict.fromkeys(tekst):  # unikke, bevarer rækkefølge
-        if ch.isspace():
-            continue
-        s, _ = get_strokes(ch, th, font)
-        if not s:
-            out.append(ch)
-    return out
 
 
 def layout_skilt(skilt):
@@ -119,6 +108,7 @@ def layout_skilt(skilt):
         justering = linje.get('justering', 'venstre') or 'venstre'
         th = ths[i]
         font = linje.get('font', 'block') or 'block'
+        afstand = _num(linje.get('afstand_mm'), 0.0) or 0.0     # ekstra luft mellem bogstaver
         lf, la_ = [], []   # linje-fejl / -advarsler
         if len(tekst) > MAX_TEKST:
             lf.append(f"Teksten er for lang (max {MAX_TEKST} tegn)")
@@ -127,7 +117,10 @@ def layout_skilt(skilt):
             lf.append(f"Ugyldig teksthøjde ({th:g} mm)")
             th = 10.0
 
-        strokes, tw = get_strokes(tekst, th, font) if tekst.strip() else ([], 0.0)
+        if afstand < -th or afstand > th * 3:
+            lf.append(f"Ugyldig bogstavafstand ({afstand:g} mm)")
+            afstand = 0.0
+        strokes, tw = get_strokes(tekst, th, font, afstand) if tekst.strip() else ([], 0.0)
 
         x_man, y_man = _num(linje.get('x_mm')), _num(linje.get('y_mm'))
         if x_man is not None:
@@ -161,7 +154,7 @@ def layout_skilt(skilt):
             if y1 > hoejde + EPS:
                 lf.append(f"rager {y1 - hoejde:.1f} mm ud under bunden")
         if tekst.strip():
-            ugyldige = _ugyldige_tegn(tekst, th, font)
+            ugyldige = manglende_tegn(tekst, font)
             if ugyldige:
                 la_.append("Tegn der springes over (findes ikke i skrifttypen): "
                            + " ".join(ugyldige))
@@ -170,7 +163,7 @@ def layout_skilt(skilt):
 
         out.append({
             'i': i, 'tekst': tekst, 'font': font, 'hoejde_mm': th,
-            'justering': justering, 'x': round(x_start, 2), 'y': round(y_pos, 2),
+            'justering': justering, 'afstand_mm': afstand, 'x': round(x_start, 2), 'y': round(y_pos, 2),
             'bredde_mm': round(tw, 2), 'paths': paths, 'bbox': bbox,
             'fejl': lf, 'advarsler': la_, 'strokes': strokes,
         })
@@ -187,8 +180,11 @@ def layout_skilt(skilt):
         for m in l['advarsler']:
             advarsler.append(f"Linje {l['i']+1}: {m}")
 
+    niveau = skilt.get('optimering') or 'fuld'
+    alle = [st for l in out for st in optimer(l['strokes'], niveau)]
     return {'ok': not fejl, 'bredde': bredde, 'hoejde': hoejde,
-            'fejl': fejl, 'advarsler': advarsler, 'linjer': out}
+            'fejl': fejl, 'advarsler': advarsler, 'linjer': out,
+            'statistik': statistik(alle)}
 
 
 def byg_skilt(skilt):
@@ -206,10 +202,11 @@ def byg_skilt(skilt):
     if not lay['ok']:
         raise ValueError("Skiltet kan ikke graveres — " + "; ".join(lay['fejl']))
 
+    niveau = skilt.get('optimering') or 'ingen'
     lines = ["M24", "G28 Z0", "G20", "G90", f"M3 S{rpm}"]
     for l in lay['linjer']:
         if not l['strokes']:
             continue
-        lines += streger_til_gcode(l['strokes'], l['x'], l['y'], feed, feed_z, z_up, prox)
+        lines += streger_til_gcode(optimer(l['strokes'], niveau), l['x'], l['y'], feed, feed_z, z_up, prox)
     lines += ["G4 P0", "M5", "M9", "M11", "M246", "G28 Z0", "G0 X0 Y0", "M30"]
     return "\n".join(lines) + "\n"
