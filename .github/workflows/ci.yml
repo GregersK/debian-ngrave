@@ -10,16 +10,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tags (v6.1.1) til sammenlignings-værktøjet
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Python compile check
-        run: python -m py_compile app.py workers/*.py
+        run: python -m py_compile app.py workers/*.py tools/*.py
       - name: Unit tests
         run: python -m unittest discover -s tests -v
       - name: JavaScript syntax check
         run: for f in static/*.js; do node --check "$f"; done
       - name: Shell syntax check
-        run: bash -n install.sh && bash -n ngrave-update.sh
+        run: bash -n install.sh && bash -n ngrave-update.sh && for f in tools/*.sh; do bash -n "$f"; done

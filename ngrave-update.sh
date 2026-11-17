@@ -13,6 +13,22 @@ log() {
 
 cd "$INSTALL_DIR"
 
+# En testserver kører en udviklings-branch; skift den aldrig til et release-tag.
+if grep -qiE '^NGRAVE_TESTSERVER=(1|ja|true|yes|on)\s*$' /etc/ngrave/ngrave.env 2>/dev/null; then
+    log "INFO: testserver (NGRAVE_TESTSERVER=1) — auto-opdatering springes over"
+    exit 0
+fi
+
+# systemctl med de rettigheder vi har: direkte som root (mange servere har slet
+# ikke sudo installeret), ellers via sudoers-reglen fra install.sh.
+sc() {
+    if [ "$(id -u)" -eq 0 ]; then
+        /bin/systemctl "$@"
+    else
+        sudo -n /bin/systemctl "$@"
+    fi
+}
+
 # git må ALDRIG hænge på et interaktivt login-prompt (systemd har ingen tty).
 export GIT_TERMINAL_PROMPT=0
 
@@ -83,17 +99,17 @@ fi
 # er blevet ramt (flere hurtige genstarts-fejl), sidder servicen ellers fast
 # i 'failed' og starter først igen ved reboot — det er den typiske årsag til
 # "servicen kom ikke op efter opdatering".
-sudo -n /bin/systemctl reset-failed ngrave 2>/dev/null || true
+sc reset-failed ngrave 2>/dev/null || true
 
-if sudo -n /bin/systemctl restart ngrave 2>/dev/null; then
+if sc restart ngrave 2>/dev/null; then
     sleep 3
     if systemctl is-active --quiet ngrave 2>/dev/null; then
         log "INFO: opgraderet til $LATEST_TAG — service kører"
     else
         # Kom ikke op → ryd failed-tilstand, prøv én gang til, gem diagnostik.
         log "WARN: service kom ikke op efter restart til $LATEST_TAG — forsøger igen"
-        sudo -n /bin/systemctl reset-failed ngrave 2>/dev/null || true
-        sudo -n /bin/systemctl start ngrave 2>/dev/null || true
+        sc reset-failed ngrave 2>/dev/null || true
+        sc start ngrave 2>/dev/null || true
         sleep 3
         {
             echo "----- DIAGNOSTIK $(date '+%F %T') efter fejlet start til $LATEST_TAG -----"
@@ -108,5 +124,5 @@ if sudo -n /bin/systemctl restart ngrave 2>/dev/null; then
         fi
     fi
 else
-    log "WARN: kunne ikke genstarte via sudo (mangler sudoers-regel?)"
+    log "FEJL: kunne ikke genstarte tjenesten (hverken root eller sudoers-regel?) — ny version ligger på disken, men den gamle kører stadig. Kør: systemctl restart ngrave"
 fi

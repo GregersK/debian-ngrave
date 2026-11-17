@@ -1,6 +1,18 @@
 #!/bin/bash
 # nGrave - Installation script for Debian 12
+#
+# Almindelig installation:   bash install.sh
+# Testserver (sender intet til maskinerne, ingen auto-opdatering):
+#   NGRAVE_REF=claude/code-review-q6onT NGRAVE_TESTSERVER=1 NGRAVE_SERVERNAVN=LAASENGRAVE01-TEST bash install.sh
+#
+#   NGRAVE_REF          branch eller tag der installeres (standard: main)
+#   NGRAVE_TESTSERVER   1 = testserver (se TESTSERVER.md)
+#   NGRAVE_SERVERNAVN   navn der vises i browserens fane og øverst på siden
 set -euo pipefail
+
+REF="${NGRAVE_REF:-main}"
+TESTSERVER="${NGRAVE_TESTSERVER:-}"
+SERVERNAVN="${NGRAVE_SERVERNAVN:-}"
 
 REPO_URL="https://github.com/GregersK/debian-ngrave.git"
 INSTALL_DIR=/opt/ngrave
@@ -19,7 +31,10 @@ echo "=== Opdaterer pakkelister ==="
 apt update -q
 
 echo "=== Installerer pakker ==="
-apt install -y python3 python3-pip python3-venv git
+# sudo: auto-opdateringen kører som brugeren '$SERVICE_USER' og genstarter
+# tjenesten via sudoers-reglen herunder — uden sudo-pakken bliver den nye
+# version aldrig taget i brug.
+apt install -y python3 python3-pip python3-venv git sudo
 
 echo "=== Opretter system-bruger '$SERVICE_USER' ==="
 if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
@@ -28,12 +43,18 @@ fi
 
 echo "=== Kloner repository ==="
 if [ -d "$INSTALL_DIR/.git" ]; then
-    echo "Eksisterende git-repo fundet — trækker seneste version"
-    git -C "$INSTALL_DIR" pull origin main --quiet
+    echo "Eksisterende git-repo fundet — henter '$REF'"
+    git -C "$INSTALL_DIR" fetch --tags --quiet origin
+    git -C "$INSTALL_DIR" checkout --quiet "$REF"
+    if git -C "$INSTALL_DIR" symbolic-ref -q HEAD >/dev/null; then
+        git -C "$INSTALL_DIR" pull --quiet origin "$REF"
+    fi
 else
     rm -rf "$INSTALL_DIR"
-    git clone "$REPO_URL" "$INSTALL_DIR" --branch main --quiet
+    git clone "$REPO_URL" "$INSTALL_DIR" --quiet
+    git -C "$INSTALL_DIR" checkout --quiet "$REF"
 fi
+echo "  Installeret: $(git -C "$INSTALL_DIR" describe --tags --always) ($REF)"
 
 echo "=== Opretter venv ==="
 python3 -m venv "$INSTALL_DIR/venv"
@@ -65,6 +86,21 @@ ENV
     echo ""
 else
     echo "  Eksisterende $ENV_FILE bevaret"
+fi
+
+# Testserver / servernavn (tilføjes også til en eksisterende env-fil)
+saet_env() {
+    if grep -qE "^$1=" "$ENV_FILE"; then
+        sed -i "s|^$1=.*|$1=$2|" "$ENV_FILE"
+    else
+        echo "$1=$2" >> "$ENV_FILE"
+    fi
+}
+[ -n "$SERVERNAVN" ] && saet_env NGRAVE_SERVERNAVN "$SERVERNAVN"
+if [ -n "$TESTSERVER" ]; then
+    saet_env NGRAVE_TESTSERVER 1
+    grep -qE '^NGRAVE_TEST_SEND_TIL=' "$ENV_FILE" || echo "NGRAVE_TEST_SEND_TIL=" >> "$ENV_FILE"
+    echo "  TESTSERVER: der sendes ikke til maskinerne (se TESTSERVER.md)"
 fi
 
 # Opdaterings-kanal (stable som standard). Skift til 'beta' på en testmaskine
@@ -151,8 +187,15 @@ chown "$SERVICE_USER":"$SERVICE_USER" /var/log/ngrave-update.log
 systemctl daemon-reload
 systemctl enable ngrave
 systemctl restart ngrave
-systemctl enable ngrave-update.timer
-systemctl restart ngrave-update.timer
+if grep -qiE '^NGRAVE_TESTSERVER=(1|ja|true|yes|on)\s*$' "$ENV_FILE"; then
+    # En testserver kører en branch, ikke et tag: auto-opdateringen ville skifte
+    # den tilbage til nyeste release-tag. Slået fra — opdatér med install.sh.
+    systemctl disable --now ngrave-update.timer 2>/dev/null || true
+    echo "  Auto-opdatering er SLÅET FRA på testserveren"
+else
+    systemctl enable ngrave-update.timer
+    systemctl restart ngrave-update.timer
+fi
 
 echo ""
 echo "=== nGrave installeret! ==="

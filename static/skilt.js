@@ -14,48 +14,10 @@ let _previewSeq = 0, _stSeq = 0;
 let skiltSidstOk = false;
 
 const farveFor = (i) => LINJE_FARVER[i % LINJE_FARVER.length];
-const nyLinje = () => ({ tekst: '', justering: 'center', hoejde_mm: 10, font: 'block', x_mm: null, y_mm: null });
-const fontNavn = (k) => (fonts && fonts[k]) || k || 'Block';
+const nyLinje = () => ({ tekst: '', justering: 'center', hoejde_mm: 10, afstand_mm: 0, font: 'block', x_mm: null, y_mm: null });
+const fontNavn = (k) => fontVisningsnavn(k);
 const talEllerNull = (id) => { const el = $(id); return el && el.value !== '' && !isNaN(+el.value) ? +el.value : null; };
 
-// Hjælpere til font-visning i nøgle-template-preview (opdaterPreview i ngrave_b.js)
-// Mapper Hershey font navne til CSS font-family approximationer
-function fontTilCSS(font) {
-  const m = {
-    'block':     'monospace',
-    // Sans
-    'futural':   'Arial, sans-serif',
-    'futuram':   'Arial, sans-serif',
-    // Roman / serif
-    'rowmans':   'Georgia, serif',
-    'rowmand':   'Georgia, serif',
-    'rowmant':   'Georgia, serif',
-    // Times
-    'timesr':    '"Times New Roman", serif',
-    'timesrb':   '"Times New Roman", serif',
-    'timesi':    'italic "Times New Roman", serif',
-    'timesib':   'italic "Times New Roman", serif',
-    // Script / kursiv
-    'scripts':   'cursive',
-    'scriptc':   'cursive',
-    'cursive':   'cursive',
-    // Gotisk / blackletter
-    'gothgrt':   '"Palatino Linotype", fantasy',
-    'gothgbt':   '"Palatino Linotype", fantasy',
-    'gothiceng': '"Palatino Linotype", fantasy',
-    'gothicger': '"Palatino Linotype", fantasy',
-    'gothicita': '"Palatino Linotype", fantasy',
-    // Gamle nøgler (bagudkompat i preview)
-    'romans':'Georgia, serif','romanc':'Georgia, serif','romand':'Georgia, serif',
-    'romant':'"Times New Roman", serif','italics':'italic Georgia, serif',
-    'italiccs':'italic Georgia, serif','italict':'italic "Times New Roman", serif',
-  };
-  return m[font] || 'monospace';
-}
-
-function fontErItalic(font) {
-  return font && (font.startsWith('italic') || font === 'timesi' || font === 'timesib' || font === 'cursive' || font === 'scripts' || font === 'scriptc');
-}
 
 
 
@@ -118,6 +80,7 @@ function skiltSpec() {
     margin_bottom_mm: talEllerNull('skilt-margin-bund'),
     linje_afstand_mm: talEllerNull('skilt-linje-afstand'),
     linjer: skiltLinjer,
+    maskine_id: $('skilt-maskine') ? $('skilt-maskine').value || null : null,
   };
 }
 
@@ -143,7 +106,9 @@ const opdaterSkiltPreview = debounce(async () => {
     farveFor, indeks,
   });
   visBanner($('skilt-banner'), lay, !harTekst);
-  $('skilt-meta').textContent = `${spec.skilt_bredde_mm} × ${spec.skilt_hoejde_mm} mm · ${indeks.length} ${indeks.length === 1 ? 'linje' : 'linjer'}`;
+  const st = lay.statistik || {};
+  $('skilt-meta').textContent = `${spec.skilt_bredde_mm} × ${spec.skilt_hoejde_mm} mm · ${indeks.length} ${indeks.length === 1 ? 'linje' : 'linjer'}` +
+    (st.loeft ? ` · ${st.loeft} penneløft, ${Math.round(st.fraesevej_mm)} mm fræsevej` : '');
 
   // pr.-linje fejl i editoren
   skiltLinjer.forEach((_, i) => { const el = $('linje-msg-' + i); if (el) el.textContent = ''; const k = $('linje-' + i); if (k) k.classList.remove('har-fejl'); });
@@ -188,6 +153,12 @@ function linjeKortHtml(l, i, mode, antal) {
         <button onclick="stepHoejde('${mode}',${i},1)" aria-label="Større">+</button>
         <span class="small muted">mm</span>
       </div>
+      <div class="stepper" title="Afstand mellem bogstaverne (mm). Negativ = tættere.">
+        <span class="small muted" aria-hidden="true">↔</span>
+        <button onclick="stepAfstand('${mode}',${i},-1)" aria-label="Tættere bogstaver">−</button>
+        <input type="number" inputmode="decimal" step="0.1" value="${+(l.afstand_mm || 0)}" oninput="linjeFelt('${mode}',${i},'afstand_mm',+this.value || 0)" aria-label="Bogstavafstand i mm">
+        <button onclick="stepAfstand('${mode}',${i},1)" aria-label="Mere luft mellem bogstaver">+</button>
+      </div>
     </div>
     <details class="linje-adv"${l.x_mm != null || l.y_mm != null ? ' open' : ''}><summary>Manuel placering (X/Y)</summary>
       <div class="adv-grid">
@@ -221,6 +192,12 @@ function stepHoejde(mode, i, d) {
   l.hoejde_mm = Math.max(1, Math.round(((+l.hoejde_mm || 10) + d) * 2) / 2);
   maal(mode).tegn();
 }
+function stepAfstand(mode, i, d) {
+  const l = maal(mode).arr()[i];
+  const trin = Math.max(0.1, Math.round((+l.hoejde_mm || 10) * 0.02 * 10) / 10);   // 2 % af teksthøjden
+  l.afstand_mm = Math.round(((+l.afstand_mm || 0) + d * trin) * 10) / 10;
+  maal(mode).tegn();
+}
 function flytLinje(mode, i, d) {
   const arr = maal(mode).arr(), j = i + d;
   if (j < 0 || j >= arr.length) return;
@@ -241,7 +218,7 @@ function fjernLinje(mode, i) {
 function tilfoejLinje() {
   if (skiltLinjer.length >= 10) { toast('Max 10 linjer pr. skilt', 'advarsel'); return; }
   const forrige = skiltLinjer[skiltLinjer.length - 1];
-  skiltLinjer.push({ ...nyLinje(), ...(forrige ? { justering: forrige.justering, font: forrige.font, hoejde_mm: forrige.hoejde_mm } : {}) });
+  skiltLinjer.push({ ...nyLinje(), ...(forrige ? { justering: forrige.justering, font: forrige.font, hoejde_mm: forrige.hoejde_mm, afstand_mm: forrige.afstand_mm || 0 } : {}) });
   tegnSkiltLinjer();
   setTimeout(() => { const el = $('lt-' + (skiltLinjer.length - 1)); if (el) el.focus(); }, 30);
 }
@@ -255,13 +232,23 @@ async function aabnFontGalleri(mode, i) {
   let data;
   try { data = await api('/api/fonts/prove?tekst=' + encodeURIComponent(prove)); }
   catch (e) { lukModal(); toast('Kunne ikke hente skrifttyper', 'fejl'); return; }
-  const tiles = Object.entries(data).map(([k, f]) => {
+  const alle = Object.values(data).map((f) => f.loeft || 0).filter((x) => x > 0).sort((p, q) => p - q);
+  const hurtig = alle.length ? alle[Math.floor(alle.length / 3)] : 0;      // hurtigste tredjedel
+  // Serverens rækkefølge (JSON-objekter sorteres alfabetisk undervejs) → brug registerets orden.
+  const orden = {};
+  (fontsInfo.fonte || []).forEach((f, n) => { orden[f.id] = n; });
+  const grupper = {};
+  Object.entries(data).sort(([a], [b]) => (orden[a] ?? 999) - (orden[b] ?? 999))
+    .forEach(([k, f]) => (grupper[f.gruppe || 'Andre'] = grupper[f.gruppe || 'Andre'] || []).push([k, f]));
+  const tile = ([k, f]) => {
     const d = f.paths.map((p) => 'M' + p.map((pt) => pt[0] + ' ' + pt[1]).join('L')).join('');
     return `<div class="font-tile ${l.font === k ? 'valgt' : ''}" data-font="${esc(k)}" onclick="vaelgFont('${mode}',${i},this.dataset.font)">
       <svg viewBox="-1.5 -12.5 ${f.bredde + 3} 18" preserveAspectRatio="xMidYMid meet"><path d="${d}" fill="none" stroke="#222" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>
-      <div class="fnavn">${esc(f.navn)}</div></div>`;
-  }).join('');
-  $('modal-krop').innerHTML = `<p class="small muted" style="margin-bottom:10px;">Prøve: »${esc(prove)}« — præcis som maskinen graverer den.</p><div class="font-grid">${tiles}</div>`;
+      <div class="fnavn">${esc(f.navn)}</div>
+      <div class="fmaal" title="Penneløft og fræsevej for prøveteksten — færre = hurtigere">${f.loeft} løft · ${Math.round(f.fraesevej_mm)} mm${f.loeft && f.loeft <= hurtig ? ' <span class="hurtig">hurtig</span>' : ''}</div></div>`;
+  };
+  const html = Object.entries(grupper).map(([g, fs]) => `<h4 class="font-gruppe">${esc(g)}</h4><div class="font-grid">${fs.map(tile).join('')}</div>`).join('');
+  $('modal-krop').innerHTML = `<p class="small muted" style="margin-bottom:10px;">Prøve: »${esc(prove)}« — præcis som maskinen graverer den. Færre penneløft = hurtigere gravering.</p>${html}`;
 }
 function vaelgFont(mode, i, k) {
   const arr = maal(mode).arr();
@@ -301,7 +288,7 @@ function loadSkiltTemplate() {
   const tidligere = skiltLinjer.map((l) => l.tekst);   // allerede skrevet tekst følger med over i layoutet
   skiltLinjer = config.map((c, i) => ({
     ...nyLinje(), tekst: tidligere[i] || '', justering: c.justering || 'center', hoejde_mm: c.hoejde_mm || 10,
-    font: c.font || 'block', x_mm: c.x_mm ?? null, y_mm: c.y_mm ?? null,
+    afstand_mm: c.afstand_mm || 0, font: c.font || 'block', x_mm: c.x_mm ?? null, y_mm: c.y_mm ?? null,
   }));
   info.textContent = `${tmpl.skilt_bredde_mm} × ${tmpl.skilt_hoejde_mm} mm · ${config.length} ${config.length === 1 ? 'linje' : 'linjer'}` +
     (tmpl.feed_xy || tmpl.spindle_rpm ? ' · egen gravehastighed' : '');
@@ -373,7 +360,7 @@ async function gemSkiltSomTemplate() {
   const res = await api('/api/skilt-templates', 'POST', {
     navn, beskrivelse: '', skilt_bredde_mm: s.skilt_bredde_mm, skilt_hoejde_mm: s.skilt_hoejde_mm,
     antal_linjer: skiltLinjer.length,
-    linjer_config: skiltLinjer.map((l) => ({ justering: l.justering, hoejde_mm: l.hoejde_mm, font: l.font, x_mm: l.x_mm, y_mm: l.y_mm })),
+    linjer_config: skiltLinjer.map((l) => ({ justering: l.justering, hoejde_mm: l.hoejde_mm, afstand_mm: l.afstand_mm || 0, font: l.font, x_mm: l.x_mm, y_mm: l.y_mm })),
     margin_top_mm: s.margin_top_mm, margin_bottom_mm: s.margin_bottom_mm, linje_afstand_mm: s.linje_afstand_mm,
     maskine_id: $('skilt-maskine').value || null,
   });

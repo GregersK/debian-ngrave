@@ -88,7 +88,7 @@ try { document.documentElement.setAttribute('data-theme', localStorage.getItem('
 
 // ─── Navigation: to produktioner (Nøgler / Skilte) + System ──────────────────
 const NAV = {
-  noegler: { label: '🔑 Nøgler', items: [['nyt-job', 'Nyt job'], ['koe-noegler', 'Kø'], ['templates', 'Templates']] },
+  noegler: { label: '🔑 Nøgler', items: [['nyt-job', 'Nyt job'], ['koe-noegler', 'Kø'], ['templates', 'Templates'], ['materialer', 'Materialer']] },
   skilte:  { label: '🏷️ Skilte', items: [['skilte', 'Nyt skilt'], ['koe-skilte', 'Kø'], ['skilt-templates', 'Templates']] },
   system:  { label: '⚙ System',  items: [['maskiner', 'Maskiner & system']] },
 };
@@ -119,8 +119,9 @@ function gaaTil(id, opts = {}) {
   else if (id === 'koe-skilte') { visKoeFane('skilte'); _startAutoRefresh(); }
   else if (id === 'skilte') { if (typeof initSkilt === 'function') initSkilt(); }
   else if (id === 'templates') hentTemplates();
+  else if (id === 'materialer') hentMaterialer();
   else if (id === 'skilt-templates') hentSkiltTemplates();
-  else if (id === 'maskiner') { hentMaskiner(); _startAutoRefresh(); }
+  else if (id === 'maskiner') { hentMaskiner(); hentToerkoersel(); _startAutoRefresh(); }
   else if (id === 'nyt-job') { if (typeof opdaterPladeVisning === 'function') opdaterPladeVisning(); }
 
   if (!opts.noHash && location.hash.slice(1) !== id) history.pushState(null, '', '#' + id);
@@ -219,6 +220,7 @@ async function opdaterStatus() {
       return `${ikon}<span class="t"> ledig${hold ? ' · ' + hold + ' på hold' : ''}</span>`;
     };
     maskinStatus = s.maskiner || {};
+    visServer(s.server);
     const n = s.maskiner_offline || 0;
     bar.innerHTML =
       chip(kls(s.noegler_running, s.noegler_pending), tekst('🔑', s.noegler_pending, s.noegler_running, s.noegler_hold), 'koe-noegler') +
@@ -231,3 +233,58 @@ async function opdaterStatus() {
 }
 setInterval(opdaterStatus, 4000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) opdaterStatus(); });
+
+// ─── Kører serveren en ældre version end denne side? ──────────────────────────
+// Sker hvis filerne er opdateret, men tjenesten ikke er genstartet: så svarer
+// den gamle proces, som ikke kender de nye API'er. Sig det tydeligt i stedet
+// for at lade halvdelen af siden fejle i stilhed.
+async function tjekServerVersion() {
+  let gammel = false;
+  try { gammel = (await fetch('/api/fonts/info', { cache: 'no-store' })).status === 404; } catch (e) { return; }
+  if (!gammel || $('genstart-banner')) return;
+  const b = document.createElement('div');
+  b.id = 'genstart-banner';
+  b.setAttribute('role', 'alert');
+  b.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:9999;background:#b45309;color:#fff;' +
+    'padding:12px 16px;font-weight:600;text-align:center;box-shadow:0 -2px 12px rgba(0,0,0,.35)';
+  b.textContent = 'nGrave er opdateret, men tjenesten er ikke genstartet — noget af siden virker ikke endnu. ' +
+    'Genstart tjenesten (systemctl restart ngrave) eller serveren.';
+  document.body.appendChild(b);
+}
+
+// ─── Servernavn og testserver-banner ─────────────────────────────────────────
+let _serverVist = '';
+function visServer(sv) {
+  if (!sv) return;
+  const noegle = JSON.stringify(sv);
+  if (noegle === _serverVist) return;
+  _serverVist = noegle;
+  document.title = (sv.testserver ? 'TEST · ' : '') + (sv.navn ? sv.navn + ' · ' : '') + 'nGrave';
+  const h1 = document.querySelector('.topbar h1');
+  if (h1) h1.textContent = '⚙ nGrave' + (sv.navn ? ' · ' + sv.navn : '');
+  const b = $('testserver-banner');
+  if (b) {
+    b.hidden = !sv.testserver;
+    b.textContent = sv.testserver
+      ? '🧪 TESTSERVER — programmer sendes IKKE til maskinerne, de gemmes som filer' +
+        ((sv.send_til || []).length ? ` (undtagen maskine ${sv.send_til.join(', ')}, som får rigtige jobs)` : '') + '.'
+      : '';
+  }
+  const k = $('toerkoersel-kort');
+  if (k) {
+    k.hidden = !sv.testserver;
+    if (sv.testserver && aktivSide === 'maskiner') hentToerkoersel();
+  }
+  maalHeader();
+}
+
+async function hentToerkoersel() {
+  const ul = $('toerkoersel-liste');
+  if (!ul || $('toerkoersel-kort').hidden) return;
+  let r;
+  try { r = await api('/api/toerkoersel'); } catch (e) { return; }
+  ul.innerHTML = r.filer.length
+    ? r.filer.map((f) => `<li><a href="/api/toerkoersel/${encodeURIComponent(f.navn)}" target="_blank" rel="noopener">${esc(f.navn)}</a>` +
+        `<span class="muted">${Math.max(1, Math.round(f.bytes / 1024))} kB · <a href="/api/toerkoersel/${encodeURIComponent(f.navn)}?hent=1">hent</a></span></li>`).join('')
+    : '<li class="muted">Ingen programmer endnu — opret et job, så lander det her i stedet for på maskinen.</li>';
+}
