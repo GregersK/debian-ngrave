@@ -187,6 +187,9 @@ Single-stroke font håndkodet i `block_font.py` med fuld dansk tegnsæt (ÆØÅ/
 
 *Løft mellem bogstaver* (`z_loeft_inde_mm`): inden for én nøgle løftes kun så meget; efter nøglens sidste streg løftes det fulde Z-løft før kørslen til næste nøgle. Minimum 1,5 mm (nøglehovedets ramme kan være op til 1 mm høj) håndhæves både ved gem og i G-code-generatoren. Gælder S5 (G-code); CIPHER (S3) bruger kun materialets feed.
 
+### Testserver ved siden af produktionen
+Se **[TESTSERVER.md](TESTSERVER.md)**: ny server ved siden af den gamle, kopi af data (`tools/kopier-fra-server.sh`, rører ikke den gamle server), intet sendes til maskinerne (programmerne gemmes som filer), og `tools/sammenlign_v611.py` viser om hvert program er identisk med det v6.1.1 ville have sendt. Styres med `NGRAVE_TESTSERVER=1`, `NGRAVE_SERVERNAVN` og `NGRAVE_TEST_SEND_TIL` (maskine-id'er der må få rigtige jobs).
+
 ### Opdatering fra v6.1.x — hvad sker der?
 - **Eksisterende nøgler graverer præcis som før.** I v6.1.x virkede skrifttyperne ikke: alt blev graveret i Block, uanset hvad templaten stod til. Templates der har valgt en anden skrifttype end Block, får ved opdateringen markeringen *Gravér alt i Block (som i v6.1)* (`templates.kun_block`) og et mærke i listen. Fjern fluebenet i templaten for at bruge de valgte skrifttyper.
 - **Eksisterende maskiner står på optimering *Ingen*** — byte-identiske programmer, indtil den slås til pr. maskine. Nye maskiner får *Fuld*.

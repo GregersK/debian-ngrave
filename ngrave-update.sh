@@ -13,6 +13,12 @@ log() {
 
 cd "$INSTALL_DIR"
 
+# En testserver kører en udviklings-branch; skift den aldrig til et release-tag.
+if grep -qiE '^NGRAVE_TESTSERVER=(1|ja|true|yes|on)\s*$' /etc/ngrave/ngrave.env 2>/dev/null; then
+    log "INFO: testserver (NGRAVE_TESTSERVER=1) — auto-opdatering springes over"
+    exit 0
+fi
+
 # systemctl med de rettigheder vi har: direkte som root (mange servere har slet
 # ikke sudo installeret), ellers via sudoers-reglen fra install.sh.
 sc() {

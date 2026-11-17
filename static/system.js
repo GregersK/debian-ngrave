@@ -160,7 +160,7 @@ async function hentMaskiner() {
   hentMaskinStatus();
 }
 
-const MS_TEKST = { online: 'Online', offline: 'Svarer ikke', afviser: 'Afviser forbindelsen', ukendt: 'Ikke tjekket endnu' };
+const MS_TEKST = { online: 'Online', offline: 'Svarer ikke', afviser: 'Afviser forbindelsen', ukendt: 'Ikke tjekket endnu', test: 'Testserver: sender ikke' };
 async function hentMaskinStatus() {
   let liste;
   try { liste = await api('/api/maskiner/status'); } catch (e) { return; }
@@ -169,13 +169,14 @@ async function hentMaskinStatus() {
     if (!el) return;
     maskinStatus[m.id] = m.status;
     let sub = '';
-    if (m.koe && m.koe.running) sub = 'Sender nu';
+    if (m.status === 'test') sub = 'Kontaktes ikke herfra — programmer gemmes som filer';
+    else if (m.koe && m.koe.running) sub = 'Sender nu';
     else if (m.graverer_formentlig) sub = `Program sendt for ${sekTekst(m.sendt_sek_siden)} — graverer formentlig (tjekker ikke forbindelsen imens)`;
     else if (m.status === 'online') sub = `svarede ${sekTekst(m.tjekket_sek_siden)}${m.ms != null ? ' · ' + m.ms + ' ms' : ''}`;
     else if (m.status === 'ukendt') sub = 'Første tjek kommer om lidt';
     else sub = `${esc(m.fejl || '')}${m.set_online_sek_siden != null ? ' · sidst online ' + sekTekst(m.set_online_sek_siden) : ''}`;
     if (m.koe && m.koe.pending) sub += `${sub ? ' · ' : ''}${m.koe.pending} i kø`;
-    el.innerHTML = `<span class="ms ${esc(m.status)}"><span class="dot"></span>${esc(MS_TEKST[m.status] || m.status)}</span><span class="ms-sub">${sub}</span>`;
+    el.innerHTML = `<div class="ms-boks"><span class="ms ${esc(m.status)}"><span class="dot"></span>${esc(MS_TEKST[m.status] || m.status)}</span><span class="ms-sub">${sub}</span></div>`;
   });
   opdaterMaskineAdvarsler();
 }
@@ -186,7 +187,7 @@ async function pingMaskine(id) {
   try {
     const r = await api(`/api/maskiner/${id}/ping`, 'POST');
     if (r.status === 'online') toast(`Maskinen svarer (${r.ms} ms)`, 'ok');
-    else if (r.status === 'optaget') toast(r.besked, 'info');
+    else if (r.status === 'optaget' || r.status === 'test') toast(r.besked, 'info');
     else toast(r.fejl || 'Maskinen svarer ikke', 'fejl');
   } catch (e) { toast('Kunne ikke tjekke maskinen', 'fejl'); }
   hentMaskinStatus();

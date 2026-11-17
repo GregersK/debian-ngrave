@@ -19,6 +19,7 @@
     <div class="chips" id="status-bar"><span class="chip"><span class="dot"></span>Indlæser…</span></div>
     <button class="theme-toggle" onclick="toggleTheme()" title="Skift mørkt/lyst tema" aria-label="Skift tema">🌓</button>
   </div>
+  <div id="testserver-banner" role="status" hidden></div>
   <nav id="nav-main" aria-label="Produktion"></nav>
   <nav id="nav-sub" aria-label="Sektion"></nav>
 </header>
@@ -491,15 +492,20 @@
 
 <!-- MASKINER -->
 <div id="panel-maskiner" class="panel">
+  <div class="kort" id="toerkoersel-kort" hidden>
+    <h2>Testserver: gemte programmer <span class="sub">sendes ikke til maskinerne</span></h2>
+    <p class="small muted" style="margin-bottom:10px;">Det maskinen ville have fået. Åbn et program for at se det, eller sammenlign med v6.1.1 på serveren: <code>/opt/ngrave/venv/bin/python /opt/ngrave/tools/sammenlign_v611.py</code></p>
+    <ul id="toerkoersel-liste" class="filliste"></ul>
+  </div>
   <div class="kort">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <h2 style="margin:0;">Maskiner</h2>
       <button class="btn btn-secondary" onclick="visNyMaskine()">+ Ny maskine</button>
     </div>
-    <table class="resp">
+    <div class="tabel-rul"><table class="resp">
       <thead><tr><th>ID</th><th>Navn</th><th>Model</th><th>Protokol</th><th>IP</th><th>Port</th><th>Forbindelse</th><th>Offset X</th><th>Offset Y</th><th>Offset Z</th><th>Spejl Y</th><th>Hastighed</th><th>Handlinger</th></tr></thead>
       <tbody id="maskiner-tabel"></tbody>
-    </table>
+    </table></div>
   </div>
 
   <div class="kort">

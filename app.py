@@ -1,11 +1,11 @@
 """
 nGrave - Flask Server
 """
-import json, sqlite3, threading, time, os, signal, logging, secrets
+import json, sqlite3, threading, time, os, re, signal, logging, secrets
 from contextlib import closing
 from datetime import datetime
 from functools import wraps
-from flask import Flask, request, jsonify, render_template, g, Response
+from flask import Flask, request, jsonify, render_template, g, Response, send_from_directory
 from workers import forbindelse, optimering
 from workers.forbindelse import ForbindelsesFejl
 
@@ -17,6 +17,30 @@ PORT = int(os.environ.get('NGRAVE_PORT', '80'))
 FALLBACK_PORT = 8080  # bruges kun hvis PORT ikke kan bindes (fx non-root uden CAP_NET_BIND_SERVICE)
 MAX_EMNER_PR_ORDRE = 5000   # sikkerhedsgrænse mod tastefejl (fx 100000 i stedet for 100)
 HOST = os.environ.get('NGRAVE_HOST', '0.0.0.0')
+# ─── Testserver ───────────────────────────────────────────────────────────
+# NGRAVE_TESTSERVER=1: en kopi af en produktions-server til afprøvning. Intet
+# sendes til maskinerne — programmerne gemmes som filer (NGRAVE_TOERKOERSEL_DIR)
+# — undtagen til maskine-id'er i NGRAVE_TEST_SEND_TIL (fx "3" eller "3,5").
+# Maskiner der ikke må sendes til, kontaktes slet ikke (ingen online-tjek, ingen
+# test-position), så testserveren aldrig forstyrrer den rigtige server.
+TESTSERVER = os.environ.get('NGRAVE_TESTSERVER', '').strip().lower() in ('1', 'ja', 'true', 'yes', 'on')
+SERVERNAVN = os.environ.get('NGRAVE_SERVERNAVN', '').strip()[:60]
+TEST_SEND_TIL = {int(x) for x in re.split(r'[\s,;]+', os.environ.get('NGRAVE_TEST_SEND_TIL', '')) if x.isdigit()}
+TOERKOERSEL_DIR = os.environ.get('NGRAVE_TOERKOERSEL_DIR',
+                                 os.path.join(os.path.dirname(os.path.abspath(__file__)), 'toerkoersel'))
+_TOERKOERSEL_NAVN = re.compile(r'^[0-9]{8}-[0-9]{6}_(noegler|skilt)-[0-9]+_m[0-9]+\.(nc|cip)$')
+
+def toerkoersel(mid):
+    """True = send IKKE til denne maskine (testserver), gem programmet i stedet."""
+    return TESTSERVER and mid not in TEST_SEND_TIL
+
+def _gem_toerkoersel(art, job_id, mid, program, ext):
+    os.makedirs(TOERKOERSEL_DIR, exist_ok=True)
+    navn = f"{datetime.now():%Y%m%d-%H%M%S}_{art}-{job_id}_m{mid}.{ext}"
+    with open(os.path.join(TOERKOERSEL_DIR, navn), 'w', encoding='ascii', errors='ignore', newline='') as f:
+        f.write(program)
+    return navn
+
 AUTH_USER = os.environ.get('NGRAVE_AUTH_USER') or ''
 AUTH_PASS = os.environ.get('NGRAVE_AUTH_PASS') or ''
 
@@ -406,11 +430,16 @@ def _koer_naeste_batch(db, mid):
         else:
             from workers.cipher_worker import byg_batch, send
         program = byg_batch(jobs, tmpl)
-        _send_med_retry(mid, send, program, maskine['ip'], maskine['port'], note)
+        slut_note = None
+        if toerkoersel(mid):
+            fil = _gem_toerkoersel('noegler', batch_id, mid, program, 'nc' if maskine['protokol'] == 'gcode' else 'cip')
+            slut_note = f"TESTSERVER: ikke sendt til maskinen — programmet er gemt som {fil}"
+        else:
+            _send_med_retry(mid, send, program, maskine['ip'], maskine['port'], note)
 
         db.execute("UPDATE jobs SET status='done', udfoert=? WHERE batch_id=?", (datetime.now(), batch_id))
-        db.execute("UPDATE job_batches SET status='done', faerdig=?, fejl_besked=NULL WHERE id=?",
-                   (datetime.now(), batch_id))
+        db.execute("UPDATE job_batches SET status='done', faerdig=?, fejl_besked=? WHERE id=?",
+                   (datetime.now(), slut_note, batch_id))
     except _Nedlukning:
         # Intet er sendt: læg batchen tilbage, så den køres efter genstarten.
         db.execute("UPDATE job_batches SET status='pending', startet=NULL, fejl_besked=NULL, fejl_kode=NULL WHERE id=?",
@@ -457,9 +486,14 @@ def _koer_naeste_skilt(db, mid):
         spec = dict(skilt)
         spec['optimering'] = optimering.niveau(spec.get('optimering'))
         gcode = byg_skilt(spec)
-        _send_med_retry(mid, send, gcode, skilt['ip'], skilt['port'], note)
-        db.execute("UPDATE skilte_jobs SET status='done', faerdig=?, fejl_besked=NULL WHERE id=?",
-                   (datetime.now(), skilt_id))
+        slut_note = None
+        if toerkoersel(mid):
+            fil = _gem_toerkoersel('skilt', skilt_id, mid, gcode, 'nc')
+            slut_note = f"TESTSERVER: ikke sendt til maskinen — programmet er gemt som {fil}"
+        else:
+            _send_med_retry(mid, send, gcode, skilt['ip'], skilt['port'], note)
+        db.execute("UPDATE skilte_jobs SET status='done', faerdig=?, fejl_besked=? WHERE id=?",
+                   (datetime.now(), slut_note, skilt_id))
     except _Nedlukning:
         db.execute("UPDATE skilte_jobs SET status='pending', startet=NULL, fejl_besked=NULL, fejl_kode=NULL WHERE id=?",
                    (skilt_id,))
@@ -497,6 +531,8 @@ def _probe_alle(rolig_sek):
     for m in maskiner:
         if stop_event.is_set():
             return
+        if toerkoersel(m['id']):
+            continue                      # testserver: rør ikke maskiner den ikke må sende til
         r = forbindelse.probe_maskine(m['id'], m['ip'], m['port'], kun_hvis_rolig_sek=rolig_sek)
         if r and r['status'] == 'online':
             _nede_til.pop(m['id'], None)
@@ -580,6 +616,8 @@ def _maskine_status_liste(db):
     ud = []
     for m in db.execute("SELECT id, navn, model, ip, port FROM maskiner WHERE aktiv=1 ORDER BY id"):
         s = forbindelse.hent(m['id'])
+        if toerkoersel(m['id']):
+            s = {**s, 'status': 'test', 'fejl': None}
         ud.append({
             'id': m['id'], 'navn': m['navn'], 'ip': m['ip'], 'port': m['port'],
             'status': s['status'], 'kilde': s['kilde'], 'fejl': s['fejl'], 'ms': s['ms'],
@@ -603,6 +641,9 @@ def ping_maskine(id):
     m = get_db().execute("SELECT id, ip, port FROM maskiner WHERE id=?", (id,)).fetchone()
     if not m:
         return jsonify({'ok': False, 'fejl': 'Maskine ikke fundet'}), 404
+    if toerkoersel(id):
+        return jsonify({'ok': True, 'status': 'test',
+                        'besked': 'Testserver: maskinen kontaktes ikke herfra (den bruges af den rigtige server).'})
     r = forbindelse.probe_maskine(m['id'], m['ip'], m['port'])
     if r is None:
         return jsonify({'ok': True, 'status': 'optaget',
@@ -983,6 +1024,9 @@ def test_maskine(id):
     maskine = db.execute("SELECT * FROM maskiner WHERE id=?", (id,)).fetchone()
     if not maskine:
         return jsonify({'ok': False, 'fejl': 'Maskine ikke fundet'}), 404
+    if toerkoersel(id):
+        return jsonify({'ok': False, 'fejl': 'Testserver: må ikke flytte denne maskine (den bruges af den rigtige server). '
+                                             'Tilføj maskinens id til NGRAVE_TEST_SEND_TIL for at teste på den.'}), 409
 
     # Test-positionen flytter maskinen. Er der lige sendt et program, graverer den
     # formentlig stadig — kræv en eksplicit bekræftelse før vi blander os.
@@ -1343,9 +1387,29 @@ def get_status():
         'noegler_pending': nk['pending'], 'noegler_running': nk['running'], 'noegler_hold': nk['on-hold'],
         'skilte_pending': sk['pending'], 'skilte_running': sk['running'],
         'pending': nk['pending'] + sk['pending'], 'running': nk['running'] + sk['running'],
-        'maskiner': {str(i): st for i, st in ms},
-        'maskiner_offline': sum(1 for _, st in ms if st in ('offline', 'afviser')),
+        'maskiner': {str(i): ('test' if toerkoersel(i) else st) for i, st in ms},
+        'maskiner_offline': sum(1 for i, st in ms if st in ('offline', 'afviser') and not toerkoersel(i)),
+        'server': {'navn': SERVERNAVN, 'testserver': TESTSERVER, 'send_til': sorted(TEST_SEND_TIL)},
     })
+
+# ─── Testserver: gemte programmer ──────────────────────────────────────────
+@app.route('/api/toerkoersel')
+@require_auth
+def toerkoersel_liste():
+    try:
+        navne = [n for n in os.listdir(TOERKOERSEL_DIR) if _TOERKOERSEL_NAVN.match(n)]
+    except FileNotFoundError:
+        navne = []
+    navne.sort(reverse=True)
+    return jsonify({'testserver': TESTSERVER, 'filer': [
+        {'navn': n, 'bytes': os.path.getsize(os.path.join(TOERKOERSEL_DIR, n))} for n in navne[:300]]})
+
+@app.route('/api/toerkoersel/<navn>')
+@require_auth
+def toerkoersel_fil(navn):
+    if not _TOERKOERSEL_NAVN.match(navn):
+        return jsonify({'ok': False, 'fejl': 'Ugyldigt filnavn'}), 400
+    return send_from_directory(TOERKOERSEL_DIR, navn, mimetype='text/plain', as_attachment=bool(request.args.get('hent')))
 
 # Fonts
 @app.route('/api/fonts')
@@ -1764,6 +1828,9 @@ if __name__ == '__main__':
             "ADVARSEL: NGRAVE_AUTH_USER/NGRAVE_AUTH_PASS er ikke sat — API er åbent. "
             "Sæt dem i /etc/ngrave/ngrave.env for at aktivere Basic Auth."
         )
+    if TESTSERVER:
+        app.logger.warning("TESTSERVER: der sendes IKKE til maskinerne%s — programmer gemmes i %s",
+                           f" (undtagen maskine {sorted(TEST_SEND_TIL)})" if TEST_SEND_TIL else "", TOERKOERSEL_DIR)
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
     threading.Thread(target=queue_worker, name='koe-dispatcher', daemon=True).start()

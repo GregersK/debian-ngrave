@@ -121,7 +121,7 @@ function gaaTil(id, opts = {}) {
   else if (id === 'templates') hentTemplates();
   else if (id === 'materialer') hentMaterialer();
   else if (id === 'skilt-templates') hentSkiltTemplates();
-  else if (id === 'maskiner') { hentMaskiner(); _startAutoRefresh(); }
+  else if (id === 'maskiner') { hentMaskiner(); hentToerkoersel(); _startAutoRefresh(); }
   else if (id === 'nyt-job') { if (typeof opdaterPladeVisning === 'function') opdaterPladeVisning(); }
 
   if (!opts.noHash && location.hash.slice(1) !== id) history.pushState(null, '', '#' + id);
@@ -220,6 +220,7 @@ async function opdaterStatus() {
       return `${ikon}<span class="t"> ledig${hold ? ' · ' + hold + ' på hold' : ''}</span>`;
     };
     maskinStatus = s.maskiner || {};
+    visServer(s.server);
     const n = s.maskiner_offline || 0;
     bar.innerHTML =
       chip(kls(s.noegler_running, s.noegler_pending), tekst('🔑', s.noegler_pending, s.noegler_running, s.noegler_hold), 'koe-noegler') +
@@ -249,4 +250,41 @@ async function tjekServerVersion() {
   b.textContent = 'nGrave er opdateret, men tjenesten er ikke genstartet — noget af siden virker ikke endnu. ' +
     'Genstart tjenesten (systemctl restart ngrave) eller serveren.';
   document.body.appendChild(b);
+}
+
+// ─── Servernavn og testserver-banner ─────────────────────────────────────────
+let _serverVist = '';
+function visServer(sv) {
+  if (!sv) return;
+  const noegle = JSON.stringify(sv);
+  if (noegle === _serverVist) return;
+  _serverVist = noegle;
+  document.title = (sv.testserver ? 'TEST · ' : '') + (sv.navn ? sv.navn + ' · ' : '') + 'nGrave';
+  const h1 = document.querySelector('.topbar h1');
+  if (h1) h1.textContent = '⚙ nGrave' + (sv.navn ? ' · ' + sv.navn : '');
+  const b = $('testserver-banner');
+  if (b) {
+    b.hidden = !sv.testserver;
+    b.textContent = sv.testserver
+      ? '🧪 TESTSERVER — programmer sendes IKKE til maskinerne, de gemmes som filer' +
+        ((sv.send_til || []).length ? ` (undtagen maskine ${sv.send_til.join(', ')}, som får rigtige jobs)` : '') + '.'
+      : '';
+  }
+  const k = $('toerkoersel-kort');
+  if (k) {
+    k.hidden = !sv.testserver;
+    if (sv.testserver && aktivSide === 'maskiner') hentToerkoersel();
+  }
+  maalHeader();
+}
+
+async function hentToerkoersel() {
+  const ul = $('toerkoersel-liste');
+  if (!ul || $('toerkoersel-kort').hidden) return;
+  let r;
+  try { r = await api('/api/toerkoersel'); } catch (e) { return; }
+  ul.innerHTML = r.filer.length
+    ? r.filer.map((f) => `<li><a href="/api/toerkoersel/${encodeURIComponent(f.navn)}" target="_blank" rel="noopener">${esc(f.navn)}</a>` +
+        `<span class="muted">${Math.max(1, Math.round(f.bytes / 1024))} kB · <a href="/api/toerkoersel/${encodeURIComponent(f.navn)}?hent=1">hent</a></span></li>`).join('')
+    : '<li class="muted">Ingen programmer endnu — opret et job, så lander det her i stedet for på maskinen.</li>';
 }

@@ -51,8 +51,8 @@ a { color: var(--info); }
 /* ── Topbar ─────────────────────────────────────────────────────────────── */
 .topbar { position: sticky; top: 0; z-index: 30; background: var(--bg-secondary); border-bottom: 1px solid var(--border); box-shadow: 0 2px 12px rgba(0,0,0,.18); padding-top: env(safe-area-inset-top); }
 .topbar-in { display: flex; align-items: center; gap: 14px; padding: 10px 24px; max-width: 1360px; margin: 0 auto; }
-.topbar h1 { font-size: 1.25rem; color: var(--accent); white-space: nowrap; letter-spacing: .2px; }
-.chips { display: flex; gap: 8px; margin-left: auto; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.topbar h1 { font-size: 1.25rem; color: var(--accent); white-space: nowrap; letter-spacing: .2px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.chips { display: flex; gap: 8px; margin-left: auto; min-width: 0; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 999px; background: var(--bg-tertiary); color: var(--text-primary); font-size: .8rem; cursor: pointer; border: 1px solid transparent; white-space: nowrap; user-select: none; }
 .chip:hover { border-color: var(--border); }
 .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-secondary); }
@@ -83,6 +83,14 @@ a { color: var(--info); }
 .kort > h2:only-child { margin-bottom: 0; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
 .form-grid .span-hele { grid-column: 1 / -1; }
+/* Testserver */
+#testserver-banner { background: #b45309; color: #fff; font-weight: 700; text-align: center; padding: 8px 14px; font-size: .9rem; }
+#testserver-banner[hidden] { display: none; }
+.ms.test .dot { background: #b45309; }
+.filliste { list-style: none; margin: 0; padding: 0; max-height: 340px; overflow: auto; }
+.filliste li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 2px; border-bottom: 1px solid var(--border); font-size: .85rem; }
+.filliste a { word-break: break-all; }
+#toerkoersel-kort code { word-break: break-all; white-space: normal; }
 .form-grid input:disabled { opacity: .7; cursor: not-allowed; }
 .form-section { margin-bottom: 22px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
 .form-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
@@ -139,7 +147,9 @@ td.act .btn { margin-right: 6px; }
 .ms.online .dot { background: var(--ok); }
 .ms.offline .dot { background: var(--fejl); }
 .ms.afviser .dot { background: var(--warn); }
-.ms-sub { display: block; font-size: .74rem; color: var(--text-secondary); margin-top: 2px; max-width: 260px; white-space: normal; }
+.ms-boks { min-width: 0; }
+.tabel-rul { overflow-x: auto; max-width: 100%; }
+.ms-sub { display: block; font-size: .74rem; color: var(--text-secondary); margin-top: 2px; max-width: 260px; white-space: normal; overflow-wrap: anywhere; }
 .fejltekst { color: var(--fejl); font-size: .76rem; margin-top: 4px; max-width: 280px; white-space: normal; }
 
 /* ── Bannere, toasts, modal ─────────────────────────────────────────────── */
