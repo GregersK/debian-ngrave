@@ -187,17 +187,20 @@ def migrate_db():
         ("skilte_jobs", "linje_afstand_mm",   "REAL"),
         ("skilte_jobs", "fejl_besked",        "TEXT"),
         ("skilte_jobs", "fejl_kode",          "TEXT"),
-        # v6.2 fonte/hastighed. Eksisterende maskiner får den hurtige sti-optimering
-        # (samme streger, færre løft). Eksisterende nøgle-templates beholder AE/OE/AA
-        # (dansk_tegn=0) så de graverer som før; nye templates får ægte ÆØÅ.
-        ("maskiner",    "optimering",         "TEXT NOT NULL DEFAULT 'fuld'"),
+        # v6.2 fonte/hastighed. EKSISTERENDE maskiner får 'ingen' (programmerne er
+        # byte-identiske med v6.1 indtil nogen slår optimeringen til under Maskiner);
+        # NYE maskiner får 'fuld' (create_maskine / schema.sql). Eksisterende nøgle-
+        # templates beholder AE/OE/AA (dansk_tegn=0); nye templates får ægte ÆØÅ.
+        ("maskiner",    "optimering",         "TEXT NOT NULL DEFAULT 'ingen'"),
         ("templates",   "dansk_tegn",         "INTEGER NOT NULL DEFAULT 0"),
         # Materiale-profiler + lavt løft mellem bogstaver. NULL = som før v6.2.
         ("templates",   "materiale_id",       "INTEGER"),
         ("templates",   "z_loeft_inde_mm",    "REAL"),
         ("templates",   "fraeser_bredde_mm",  "REAL"),
+        ("templates",   "kun_block",          "INTEGER NOT NULL DEFAULT 0"),
     ]
     with sqlite3.connect(DB) as db:
+        fra_v61 = 'kun_block' not in {r[1] for r in db.execute("PRAGMA table_info(templates)")}
         for table, col, typedef in migrations:
             try:
                 db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typedef}")
@@ -205,6 +208,23 @@ def migrate_db():
             except sqlite3.OperationalError as e:
                 if "duplicate column name" not in str(e):
                     app.logger.warning("Migration %s.%s fejlede: %s", table, col, e)
+        if fra_v61:
+            # Databasen kommer fra v6.1.x. Dér virkede skrifttyperne ikke: alt blev
+            # graveret i Block, uanset hvad templaten stod til. For at eksisterende
+            # nøgler graveres PRÆCIS som før, låses de templates der har valgt en
+            # anden skrifttype til Block (kan slås fra pr. template i editoren).
+            try:
+                n = db.execute("""
+                    UPDATE templates SET kun_block=1 WHERE
+                        COALESCE(NULLIF(markering_font,''), NULLIF(font,''), 'block') != 'block'
+                     OR COALESCE(NULLIF(system_font,''),    NULLIF(font,''), 'block') != 'block'
+                     OR COALESCE(NULLIF(loebe_font,''),     NULLIF(font,''), 'block') != 'block'
+                     OR COALESCE(NULLIF(ekstra_font,''),    NULLIF(font,''), 'block') != 'block'""").rowcount
+                if n:
+                    app.logger.info("Migration: %d nøgle-template(s) med anden skrifttype end Block "
+                                    "graverer fortsat i Block (som i v6.1)", n)
+            except sqlite3.OperationalError as e:
+                app.logger.warning("Migration kun_block fejlede: %s", e)
 
 def cleanup_running_on_startup():
     """Marker jobs der var 'running' ved restart som fejlede."""
@@ -297,9 +317,14 @@ def _maskine_arbejder(mid):
     except Exception as e:
         app.logger.exception("Maskine-tråd %s fejlede: %s", mid, e)
 
+class _Nedlukning(Exception):
+    """Tjenesten lukker ned før noget er sendt — jobbet skal tilbage i køen."""
+
 def _send_med_retry(mid, send_fn, payload, ip, port, saet_note):
     """Sender et program. Kun forbindelsesfejl (intet sendt) prøves igen — med
     pause, så en maskine der lige genstarter får en chance."""
+    if stop_event.is_set():
+        raise _Nedlukning()
     nede = _nede_til.get(mid)
     if nede and time.time() < nede[0]:
         raise ForbindelsesFejl(nede[1].aarsag, nede[1].besked)   # fail-fast: maskinen er lige blevet opgivet
@@ -324,7 +349,7 @@ def _send_med_retry(mid, send_fn, payload, ip, port, saet_note):
                 return
         saet_note(f"Ingen forbindelse til maskinen — prøver igen om {pause:g} s (forsøg {forsoeg + 1} af {SEND_FORSOEG})")
         if stop_event.wait(pause):
-            raise ValueError("Afbrudt ved nedlukning")
+            raise _Nedlukning()
 
 MATERIALE_FELTER = ('feed_xy', 'feed_z', 'spindle_rpm', 'z_op_mm', 'z_loeft_inde_mm',
                     'prox_offset_mm', 'fraeser_bredde_mm')
@@ -386,6 +411,10 @@ def _koer_naeste_batch(db, mid):
         db.execute("UPDATE jobs SET status='done', udfoert=? WHERE batch_id=?", (datetime.now(), batch_id))
         db.execute("UPDATE job_batches SET status='done', faerdig=?, fejl_besked=NULL WHERE id=?",
                    (datetime.now(), batch_id))
+    except _Nedlukning:
+        # Intet er sendt: læg batchen tilbage, så den køres efter genstarten.
+        db.execute("UPDATE job_batches SET status='pending', startet=NULL, fejl_besked=NULL, fejl_kode=NULL WHERE id=?",
+                   (batch_id,))
     except Exception as e:
         db.execute("UPDATE job_batches SET status='fejl', fejl_besked=?, fejl_kode=? WHERE id=?",
                    (_kort_fejl(e), _fejl_kode(e), batch_id))
@@ -431,6 +460,9 @@ def _koer_naeste_skilt(db, mid):
         _send_med_retry(mid, send, gcode, skilt['ip'], skilt['port'], note)
         db.execute("UPDATE skilte_jobs SET status='done', faerdig=?, fejl_besked=NULL WHERE id=?",
                    (datetime.now(), skilt_id))
+    except _Nedlukning:
+        db.execute("UPDATE skilte_jobs SET status='pending', startet=NULL, fejl_besked=NULL, fejl_kode=NULL WHERE id=?",
+                   (skilt_id,))
     except Exception as e:
         db.execute("UPDATE skilte_jobs SET status='fejl', fejl_besked=?, fejl_kode=? WHERE id=?",
                    (_kort_fejl(e), _fejl_kode(e), skilt_id))
@@ -447,7 +479,10 @@ def _varm_fonte():
     try:
         from workers.font_manager import INFO, get_strokes
         for fid in INFO:
-            get_strokes('Aa Æøå 1', 10.0, fid)
+            try:
+                get_strokes('Aa Æøå 1', 10.0, fid)
+            except ValueError as e:
+                app.logger.error("%s", e)
     except Exception:
         app.logger.exception("Font-opvarmning fejlede")
 
@@ -579,7 +614,15 @@ def ping_maskine(id):
 @app.route('/api/maskiner/<int:id>/kalibrering', methods=['PUT'])
 @require_auth
 def kalibrering(id):
-    d = request.json or {}
+    d = dict(request.json or {})
+    felter = ['offset_x', 'offset_y', 'offset_z'] + [f'felt_{f}_{a}' for f in ('markering', 'system', 'loebe', 'ekstra') for a in ('dx', 'dy')]
+    try:
+        for k in felter:        # tomt felt = 0; tekst afvises (ellers ender den i databasen og vælter graveringen)
+            d[k] = 0.0 if d.get(k) in (None, '') else float(d[k])
+            if not -1000 < d[k] < 1000:
+                raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'fejl': 'Offset skal være tal (mm)'}), 400
     db = get_db()
     db.execute("""UPDATE maskiner SET offset_x=?, offset_y=?, offset_z=?, spejl_y=?,
                     felt_markering_dx=?, felt_markering_dy=?,
@@ -606,9 +649,10 @@ def get_templates():
 @app.route('/api/templates', methods=['POST'])
 @require_auth
 def create_template():
-    d = request.json or {}
+    d = dict(request.json or {})
     db = get_db()
     ekstra, fejl = _template_ekstra(d, _tal(d.get('z_op_mm'), None))
+    fejl = _template_tal(d) + fejl
     if fejl:
         return jsonify({'ok': False, 'fejl': '; '.join(fejl)}), 400
     try:
@@ -655,9 +699,10 @@ def create_template():
 @app.route('/api/templates/<int:id>', methods=['PUT'])
 @require_auth
 def update_template(id):
-    d = request.json or {}
+    d = dict(request.json or {})
     db = get_db()
     ekstra, fejl = _template_ekstra(d, _tal(d.get('z_op_mm'), None))
+    fejl = _template_tal(d) + fejl
     if fejl:
         return jsonify({'ok': False, 'fejl': '; '.join(fejl)}), 400
     try:
@@ -812,6 +857,27 @@ def delete_materiale(id):
     db.commit()
     return jsonify({'ok': True})
 
+TEMPLATE_TAL = (['zone_bredde_mm', 'zone_hoejde_mm', 'tekst_hoejde_mm', 'linje_afstand', 'feed_xy', 'feed_z',
+                 'spindle_rpm', 'z_op_mm', 'prox_offset_mm'] +
+                [f'{p}_{k}' for p in ('markering', 'system', 'loebe', 'ekstra') for k in ('x', 'y', 'hoejde_mm')])
+
+def _template_tal(d):
+    """Tal-felter i en template-request → float (på plads). Fejlliste hvis noget
+    ikke er et tal — ellers gemmes teksten i databasen og vælter graveringen."""
+    fejl = []
+    for k in TEMPLATE_TAL:
+        if k in d and d[k] not in (None, ''):
+            try:
+                d[k] = float(d[k])
+                if d[k] != d[k] or abs(d[k]) > 1e6:
+                    raise ValueError
+            except (TypeError, ValueError):
+                fejl.append(f'{k} skal være et tal')
+    for k in ('zone_bredde_mm', 'zone_hoejde_mm', 'tekst_hoejde_mm'):
+        if isinstance(d.get(k), float) and d[k] <= 0:
+            fejl.append(f'{k} skal være større end 0')
+    return fejl
+
 def _template_ekstra(d, z_op):
     """Materiale, løft mellem bogstaver og fræserbredde fra en template-request.
     Returnerer ({kolonne: værdi} for de felter klienten sendte, fejl)."""
@@ -832,6 +898,8 @@ def _template_ekstra(d, z_op):
         ud['z_loeft_inde_mm'] = _tal_felt(d, 'z_loeft_inde_mm', fejl, 'Løft mellem bogstaver', float, 0, 50, tom_ok=True)
         if not ud.get('materiale_id'):
             _tjek_loeft_inde(ud['z_loeft_inde_mm'], z_op, fejl)
+    if 'kun_block' in d:
+        ud['kun_block'] = 1 if d.get('kun_block') else 0
     if 'fraeser_bredde_mm' in d:
         ud['fraeser_bredde_mm'] = _tal_felt(d, 'fraeser_bredde_mm', fejl, 'Fræserens stregbredde', float, 0.02, 5, tom_ok=True)
     return ud, fejl
@@ -1065,14 +1133,21 @@ def create_batch():
 @require_auth
 def frigiv_batch(id):
     db = get_db()
-    db.execute("UPDATE job_batches SET status='pending' WHERE id=?", (id,))
+    # Kun plader der venter på hold. Uden den betingelse kunne et klik fra en
+    # forældet fane sætte en plade der allerede ER graveret tilbage i køen.
+    cur = db.execute("UPDATE job_batches SET status='pending' WHERE id=? AND status='on-hold'", (id,))
     db.commit()
+    if cur.rowcount != 1:
+        return jsonify({'ok': False, 'fejl': 'Pladen er allerede frigivet (eller findes ikke længere)'}), 409
     return jsonify({'ok': True})
 
 @app.route('/api/batches/<int:id>/annuller', methods=['POST'])
 @require_auth
 def annuller_batch(id):
     db = get_db()
+    r = db.execute("SELECT status FROM job_batches WHERE id=?", (id,)).fetchone()
+    if r and r['status'] == 'running':
+        return jsonify({'ok': False, 'fejl': 'Programmet er ved at blive sendt til maskinen og kan ikke annulleres herfra — stop på maskinen'}), 409
     db.execute("DELETE FROM jobs WHERE batch_id=?", (id,))
     db.execute("DELETE FROM job_batches WHERE id=?", (id,))
     db.commit()
@@ -1247,6 +1322,9 @@ def gentag_fejlede():
 @require_auth
 def annuller_skilt(id):
     db = get_db()
+    r = db.execute("SELECT status FROM skilte_jobs WHERE id=?", (id,)).fetchone()
+    if r and r['status'] == 'running':
+        return jsonify({'ok': False, 'fejl': 'Programmet er ved at blive sendt til maskinen og kan ikke annulleres herfra — stop på maskinen'}), 409
     db.execute("DELETE FROM skilte_jobs WHERE id=?", (id,))
     db.commit()
     return jsonify({'ok': True})
@@ -1299,7 +1377,10 @@ def fonts_prove():
     tekst = (request.args.get('tekst') or 'Aa Bb Æøå 123').strip()[:24] or 'Aa'
     out = {}
     for key, navn in FONTS.items():
-        strokes, w = get_strokes(tekst, 10.0, key)
+        try:
+            strokes, w = get_strokes(tekst, 10.0, key)
+        except ValueError:
+            continue                      # skrifttypen kan ikke indlæses på denne server → vis den ikke
         st = optimering.statistik(optimering.optimer(strokes, optimering.STANDARD))
         out[key] = {'navn': navn, 'gruppe': INFO[key]['gruppe'], 'bredde': round(w, 2),
                     'loeft': st['loeft'], 'fraesevej_mm': st['fraesevej_mm'],
@@ -1323,6 +1404,7 @@ def _tmpl_fra_form(d):
     t = {'zone_bredde_mm': _tal(d.get('zone_bredde_mm'), 18.0), 'zone_hoejde_mm': _tal(d.get('zone_hoejde_mm'), 8.0),
          'tekst_hoejde_mm': _tal(d.get('tekst_hoejde_mm'), 3.5) or 3.5, 'font': d.get('font') or 'block',
          'dansk_tegn': 1 if d.get('dansk_tegn', 1) else 0,
+         'kun_block': 1 if d.get('kun_block') else 0,
          'materiale_id': d.get('materiale_id') or None,
          'z_loeft_inde_mm': _tal(d.get('z_loeft_inde_mm'), None),
          'fraeser_bredde_mm': _tal(d.get('fraeser_bredde_mm'), None)}
@@ -1351,7 +1433,12 @@ def _noegle_layout(tmpl, job, niveau=None):
     top, bund = -th, zh - th
     streg = _tal(tmpl.get('fraeser_bredde_mm'), None) or None
     felter, fejl, advarsler, lodret, alle = [], [], [], [], []
-    for f in felt_layout(job, tmpl):
+    try:
+        layout = felt_layout(job, tmpl)
+    except ValueError as e:               # FontFejl: skrifttypen kan ikke indlæses
+        layout = []
+        fejl.append(str(e))
+    for f in layout:
         paths = [[[round(f['x'] + x, 3), round(f['y'] - y, 3)] for x, y in st] for st in f['strokes'] if st]
         bbox = None
         if paths:
@@ -1475,7 +1562,7 @@ TEMPLATE_EXPORT_COLS = [
     'ekstra_aktiv', 'ekstra_navn', 'ekstra_x', 'ekstra_y',
     'ekstra_justering', 'ekstra_font', 'ekstra_hoejde_mm',
     'ekstra_bogstav_afstand_mm', 'ekstra_position',
-    'grid_json', 'dansk_tegn', 'z_loeft_inde_mm', 'fraeser_bredde_mm',
+    'grid_json', 'dansk_tegn', 'kun_block', 'z_loeft_inde_mm', 'fraeser_bredde_mm',
 ]
 MATERIALE_EXPORT_COLS = [
     'navn', 'beskrivelse', 'feed_xy', 'feed_z', 'spindle_rpm', 'z_op_mm', 'z_loeft_inde_mm',
@@ -1623,6 +1710,20 @@ def _handle_signal(signum, frame):
     stop_event.set()
     raise SystemExit(0)
 
+def _vent_paa_sendinger(timeout=45.0):
+    """Ved nedlukning: lad igangværende sendinger blive færdige OG bogført.
+    Ellers kan et program der ER sendt ende som 'fejl' i køen — og blive
+    graveret én gang til, når nogen trykker 'prøv igen'. (Tråde der venter på
+    en slukket maskine vågner straks og lægger deres job tilbage i køen.)"""
+    slut = time.time() + timeout
+    with _maskine_traade_laas:
+        traade = list(_maskine_traade.values())
+    for t in traade:
+        t.join(max(0.0, slut - time.time()))
+    haenger = [t.name for t in traade if t.is_alive()]
+    if haenger:
+        app.logger.warning("Lukker ned selvom %s stadig sender", ", ".join(haenger))
+
 def _start_port80_redirector():
     """Tiny HTTP-server på :80 der 302-redirecter alle requests til :PORT.
 
@@ -1693,4 +1794,6 @@ if __name__ == '__main__':
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
+        stop_event.set()
         srv.server_close()
+        _vent_paa_sendinger()

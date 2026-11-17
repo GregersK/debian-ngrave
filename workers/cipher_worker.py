@@ -1,5 +1,6 @@
 """S3 Worker — CIPHER CEF over RS232/Ethernet"""
 import socket, time
+from . import _samme_version  # noqa: F401  (skal stå FØR de andre workers-importer)
 from .font_manager import get_strokes
 from .forbindelse import aabn
 from .optimering import optimer
@@ -32,6 +33,9 @@ def strokes_til_cipher(strokes, x_offset, y_offset, spejl_y=False):
 
 def byg_job_cmds(job, tmpl):
     """Bygger CIPHER kommandoer for ét job (uden IN/FR og afslutning)."""
+    if tmpl.get('kun_block', 1):    # v6.1-template (eller umigreret række): alt i Block — se gcode_worker.felt_def
+        tmpl = {**tmpl, 'font': 'block', 'markering_font': 'block', 'system_font': 'block',
+                'loebe_font': 'block', 'ekstra_font': 'block'}
     zw      = tmpl['zone_bredde_mm']
     th      = tmpl['tekst_hoejde_mm']
     font    = tmpl.get('font', 'block') or 'block'

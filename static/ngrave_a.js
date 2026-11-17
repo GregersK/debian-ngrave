@@ -1,10 +1,89 @@
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║ KOMPATIBILITETS-KOPI fra v6.1.1 — bruges IKKE af den nye brugerflade.    ║
+// ║                                                                          ║
+// ║ Når en server opdateres, skiftes filerne på disken ud FØR tjenesten      ║
+// ║ genstartes. Sker genstarten ikke (fx manglende rettigheder), kører den   ║
+// ║ gamle v6.1-proces videre med den gamle side i hukommelsen — og den side  ║
+// ║ henter netop denne fil. Derfor ligger v6.1.1-koden uændret her, så       ║
+// ║ produktionen fortsætter, og et banner beder om en genstart.              ║
+// ║ Den nye brugerflade ligger i ui.js, noegler.js, skilt.js og system.js.   ║
+// ║ Kan fjernes når ingen servere længere kører v6.1.x.                      ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
 // ─── State ────────────────────────────────────────────────────────────────────
 let maskiner = [], templates = [], skiltTemplates = [], fonts = {};
-let fontsInfo = { fonte: [], navne: {} };   // alle fonte inkl. skjulte/gamle id'er
-let materialer = [];                          // materiale-profiler (messing, plast …)
 let redigerTemplateId = null, redigerSkiltTemplateId = null;
+let skiltLinjer = [];
 let gridSlots = [];
 let currentTab = 't-basis';
+
+// HTML-escape af bruger-leverede strenge før de indsættes via innerHTML.
+// Beskytter mod stored XSS via maskine-/template-navne mv.
+function esc(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// ─── Theme ────────────────────────────────────────────────────────────────────
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+}
+
+// Load saved theme
+const savedTheme = localStorage.getItem('theme') || 'dark';
+document.documentElement.setAttribute('data-theme', savedTheme);
+
+// ─── Navigation ───────────────────────────────────────────────────────────────
+function skift(panel) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('aktiv'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('aktiv'));
+  document.getElementById('panel-' + panel).classList.add('aktiv');
+  event.target.classList.add('aktiv');
+  if (panel === 'jobkoe')  { hentBatches(); _startAutoRefresh(); }
+  else                     { _stopAutoRefresh(); }
+  if (panel === 'skilte')           { initSkilt(); }
+  if (panel === 'templates')        hentTemplates();
+  if (panel === 'skilt-templates')  hentSkiltTemplates();
+  if (panel === 'maskiner')         hentMaskiner();
+}
+
+function skiftTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('aktiv'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('aktiv'));
+  event.target.classList.add('aktiv');
+  document.getElementById('tab-' + tab).classList.add('aktiv');
+  currentTab = tab;
+  if (tab === 't-felt') setTimeout(opdaterPreview, 50);
+}
+
+// ─── API ──────────────────────────────────────────────────────────────────────
+async function api(url, method='GET', data=null) {
+  const opts = { method, headers: {'Content-Type':'application/json'} };
+  if (data) opts.body = JSON.stringify(data);
+  const r = await fetch(url, opts);
+  if (r.status === 401) {
+    // Browser håndterer Basic Auth-prompt automatisk via WWW-Authenticate.
+    // Hvis vi alligevel havner her, så viser vi en besked.
+    alert('Login påkrævet — opdater siden hvis du ikke har set en login-prompt');
+    throw new Error('Auth påkrævet');
+  }
+  return r.json();
+}
+
+// ─── Status bar ───────────────────────────────────────────────────────────────
+async function opdaterStatus() {
+  const s = await api('/api/status');
+  document.getElementById('status-bar').textContent = `Jobkø: ${s.pending} pending / ${s.running} kører`;
+}
+setInterval(opdaterStatus, 3000);
+opdaterStatus();
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function initDropdowns() {
@@ -12,32 +91,21 @@ async function initDropdowns() {
   templates = await api('/api/templates');
   skiltTemplates = await api('/api/skilt-templates');
   fonts = await api('/api/fonts');
-  try { fontsInfo = await api('/api/fonts/info'); } catch (e) { /* ældre server: kun navne */ }
-  try { materialer = await api('/api/materialer'); } catch (e) { materialer = []; }
-  const tmat = $('t-materiale');
-  if (tmat) tmat.innerHTML = '<option value="">Egne værdier (herunder)</option>' +
-    materialer.map((m) => `<option value="${m.id}">${esc(m.navn)}</option>`).join('');
 
   const jtempl = document.getElementById('job-template');
   jtempl.innerHTML = templates.map(t => `<option value="${t.id}" data-maskine="${t.maskine_id||''}">${esc(t.navn)}</option>`).join('');
-  // Husk sidst brugte template og maskine
-  const sidst = lsGet('sidst_template');
+  // Husk sidst brugte template
+  const sidst = localStorage.getItem('sidst_template');
   if (sidst && jtempl.querySelector(`option[value="${sidst}"]`)) {
     jtempl.value = sidst;
   }
 
   const jmask = document.getElementById('job-maskine');
   jmask.innerHTML = maskiner.map(m => `<option value="${m.id}">${esc(m.navn)} (${esc(m.model)})</option>`).join('');
-  const sm = lsGet('sidst_maskine');
-  if (sm && jmask.querySelector(`option[value="${sm}"]`)) jmask.value = sm;
-  opdaterTemplateMaskine();   // template's standardmaskine har forrang
+  opdaterTemplateMaskine();
 
   const smask = document.getElementById('skilt-maskine');
-  const forrigeSkiltMaskine = smask.value || lsGet('sidst_skilt_maskine');
-  // Skilte graveres som G-code → kun S5-maskiner kan bruges (CIPHER/S3 forstår ikke programmet)
-  smask.innerHTML = maskiner.filter(m => m.protokol === 'gcode').map(m => `<option value="${m.id}">${esc(m.navn)}</option>`).join('');
-  if (forrigeSkiltMaskine && smask.querySelector(`option[value="${forrigeSkiltMaskine}"]`)) smask.value = forrigeSkiltMaskine;
-  opdaterMaskineAdvarsler();
+  smask.innerHTML = maskiner.map(m => `<option value="${m.id}">${esc(m.navn)}</option>`).join('');
 
   const stvalg = document.getElementById('skilt-template-valg');
   stvalg.innerHTML = '<option value="">Vælg template...</option>' +
@@ -48,171 +116,58 @@ async function initDropdowns() {
 
   const stmask = document.getElementById('st-maskine');
   stmask.innerHTML = '<option value="">Valgfri</option>' + maskiner.map(m => `<option value="${m.id}">${esc(m.navn)}</option>`).join('');
-
-  // Udfyld nøgle-template font-dropdowns dynamisk fra font-listen (så de
-  // matcher de faktisk understøttede skrifttyper). '' = brug fælles font.
-  const fontOpts = '<option value="">← Fælles font</option>' + fontOptgrupper();
-  ['t-mark-font','t-sys-font','t-loebe-font','t-ekstra-font'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.innerHTML = fontOpts;
-  });
 }
-
-// Fonte grupperet til <select> (skjulte dubletter vises ikke i menuen).
-function fontOptgrupper() {
-  const synlige = (fontsInfo.fonte || []).filter((f) => !f.skjult);
-  if (!synlige.length) return Object.entries(fonts).map(([k, v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join('');
-  const grupper = {};
-  synlige.forEach((f) => (grupper[f.gruppe] = grupper[f.gruppe] || []).push(f));
-  return Object.entries(grupper).map(([g, fs]) =>
-    `<optgroup label="${esc(g)}">${fs.map((f) => `<option value="${esc(f.id)}">${esc(f.navn)}</option>`).join('')}</optgroup>`).join('');
-}
-// Sæt en font-<select>. Bruger templaten en skjult/ældre font, tilføjes den som
-// valg — ellers ville en gem stille skifte fonten ud.
-function saetFontValg(id, v) {
-  const el = $(id);
-  if (!el) return;
-  v = v || '';
-  if (v && ![...el.options].some((o) => o.value === v)) {
-    const navn = (fontsInfo.navne && fontsInfo.navne[v]) || (fonts && fonts[v]) || v;
-    el.insertAdjacentHTML('beforeend', `<option value="${esc(v)}">${esc(navn)} (ældre)</option>`);
-  }
-  el.value = v;
-}
-// Materiale valgt → dets værdier vises (låst) i templatens felter.
-const MAT_FELTER = [['t-fxy', 'feed_xy'], ['t-fz', 'feed_z'], ['t-rpm', 'spindle_rpm'], ['t-zop', 'z_op_mm'],
-                    ['t-prox', 'prox_offset_mm'], ['t-zinde', 'z_loeft_inde_mm'], ['t-fraeser', 'fraeser_bredde_mm']];
-function anvendMateriale() {
-  const sel = $('t-materiale');
-  if (!sel) return;
-  const m = materialer.find((x) => String(x.id) === sel.value);
-  MAT_FELTER.forEach(([id, k]) => { const e = $(id); if (!e) return; if (m) e.value = m[k] ?? ''; e.disabled = !!m; });
-  $('t-materiale-info').textContent = m
-    ? `${m.navn}${m.fraeser ? ' · ' + m.fraeser : ''} — hastighed, dybde og fræser kommer fra materialet (ret dem under Nøgler → Materialer).`
-    : 'Templaten bruger sine egne værdier herunder. Vælg et materiale for at bruge dets hastighed, dybde og fræser.';
-}
-function saetMateriale(id) {
-  const sel = $('t-materiale');
-  if (!sel) return;
-  const v = id == null ? '' : String(id);
-  if (v && ![...sel.options].some((o) => o.value === v)) {
-    sel.insertAdjacentHTML('beforeend', `<option value="${esc(v)}">Materiale #${esc(v)} (findes ikke længere)</option>`);
-  }
-  sel.value = v;
-  anvendMateriale();
-}
-function talEllerTom(id) { const e = $(id); return e && e.value !== '' && !isNaN(+e.value) ? +e.value : null; }
-
-function fontVisningsnavn(k) { return (fontsInfo.navne && fontsInfo.navne[k]) || (fonts && fonts[k]) || k || 'Block'; }
-
-// ─── Nyt nøgle-job ────────────────────────────────────────────────────────────
-function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 
 function opdaterTemplateMaskine() {
-  const sel = $('job-template');
+  const sel = document.getElementById('job-template');
   const opt = sel.options[sel.selectedIndex];
   const mid = opt ? opt.dataset.maskine : '';
-  if (mid) $('job-maskine').value = mid;
-  return !!mid;
+  if (mid) document.getElementById('job-maskine').value = mid;
 }
 
 function opdaterJobFelter() {
   opdaterTemplateMaskine();
-  const tmpl = templates.find(t => t.id == +$('job-template').value);
-  const container = $('job-felter-container');
-  if (!tmpl) { container.innerHTML = ''; opdaterPladeVisning(); return; }
+  const sel = document.getElementById('job-template');
+  const tid = +sel.value;
+  const tmpl = templates.find(t => t.id == tid);
+  const container = document.getElementById('job-felter-container');
+  if (!tmpl) { container.innerHTML = ''; return; }
 
-  // Alt der stammer fra databasen (felt-navne) escapes — templates kan have vilkårlige navne.
-  const felt = (navn, def, id, extra = '') =>
-    `<div><label for="${id}">${esc(navn || def)}</label><input id="${id}" autocomplete="off" ${extra}></div>`;
+  // Sorter felterne efter position sat i template
   const feltDefs = [
-    { pos: tmpl.markering_position || 1, render: () => tmpl.markering_aktiv ? felt(tmpl.markering_navn, 'Markering', 'job-type') : '' },
-    { pos: tmpl.system_position || 2,    render: () => tmpl.system_aktiv    ? felt(tmpl.system_navn, 'System nr', 'job-system') : '' },
-    { pos: tmpl.ekstra_position || 4,    render: () => tmpl.ekstra_aktiv    ? felt(tmpl.ekstra_navn, 'Ekstra', 'job-ekstra') : '' },
-    { pos: tmpl.loebe_position || 3, render: () => {
-      if (!tmpl.loebe_aktiv) return `<div><label for="job-antal">Antal emner</label><input id="job-antal" type="number" inputmode="numeric" value="1" min="1" oninput="opdaterPladeVisning()"></div>`;
-      const ln = esc(tmpl.loebe_navn || 'Løbenr');
-      let h = `<div><label for="job-fra">${ln} fra</label><input id="job-fra" type="number" inputmode="numeric" value="1" min="1" oninput="opdaterPladeVisning()"></div>`;
-      h    += `<div><label for="job-til">${ln} til</label><input id="job-til" type="number" inputmode="numeric" value="20" min="1" oninput="opdaterPladeVisning()"></div>`;
-      if (tmpl.loebe_prefix_aktiv) h += `<div><label for="job-prefix">Prefix</label><input id="job-prefix" placeholder="f.eks. S"></div>`;
-      if (tmpl.loebe_suffix_aktiv) h += `<div><label for="job-suffix">Suffix</label><input id="job-suffix"></div>`;
+    { pos: tmpl.markering_position||1, render: () => tmpl.markering_aktiv ? `<div><label>${tmpl.markering_navn||'Markering'}</label><input id="job-type" placeholder=""></div>` : '' },
+    { pos: tmpl.system_position||2,    render: () => tmpl.system_aktiv    ? `<div><label>${tmpl.system_navn||'System nr'}</label><input id="job-system" placeholder=""></div>` : '' },
+    { pos: tmpl.ekstra_position||4,    render: () => tmpl.ekstra_aktiv    ? `<div><label>${tmpl.ekstra_navn||'Ekstra'}</label><input id="job-ekstra" placeholder=""></div>` : '' },
+    { pos: tmpl.loebe_position||3, render: () => {
+      if (!tmpl.loebe_aktiv) return `<div><label>Antal emner</label><input id="job-antal" type="number" value="1" min="1"></div>`;
+      let h = `<div><label>${tmpl.loebe_navn||'Løbenr'} fra</label><input id="job-fra" type="number" value="1" min="1"></div>`;
+      h    += `<div><label>${tmpl.loebe_navn||'Løbenr'} til</label><input id="job-til" type="number" value="20" min="1"></div>`;
+      if (tmpl.loebe_prefix_aktiv) h += `<div><label>Prefix</label><input id="job-prefix" placeholder="f.eks. S" style="width:80px;"></div>`;
+      if (tmpl.loebe_suffix_aktiv) h += `<div><label>Suffix</label><input id="job-suffix" placeholder="" style="width:80px;"></div>`;
       return h;
     }},
   ].sort((a, b) => a.pos - b.pos);
 
   container.innerHTML = feltDefs.map(f => f.render()).join('');
-  opdaterPladeVisning();
 }
 
-// Fordeling på plader — samme regneregel som serveren (create_batch).
-function pladeFordeling(antal, start, N) {
-  const foerste = N - start + 1;
-  if (foerste <= 0 || antal <= 0) return [];
-  if (antal <= foerste) return [antal];
-  const res = [foerste];
-  let rest = antal - foerste;
-  while (rest > 0) { res.push(Math.min(N, rest)); rest -= N; }
-  return res;
-}
-
-function jobTal() {
-  const tmpl = templates.find(t => t.id == +$('job-template').value);
-  if (!tmpl) return null;
-  const num = (id, d) => { const el = $(id); return el && el.value !== '' ? Math.floor(+el.value) : d; };
-  const antal = tmpl.loebe_aktiv ? num('job-til', 1) - num('job-fra', 1) + 1 : num('job-antal', 1);
-  return { tmpl, antal, start: Math.max(1, num('job-startslot', 1)) };
-}
-
-function opdaterPladeVisning() {
-  const wrap = $('plade-wrap'), svg = $('plade-svg'), op = $('job-opsummering'), knap = $('job-send');
-  if (!wrap) return;
-  const t = jobTal();
-  let slots = [];
-  try { slots = t ? (JSON.parse(t.tmpl.grid_json).slots || []) : []; } catch (e) {}
-  if (!t || !slots.length) { wrap.style.display = 'none'; if (knap) knap.disabled = !t; return; }
-  wrap.style.display = 'block';
-
-  const N = slots.length, zw = +t.tmpl.zone_bredde_mm || 18, zh = +t.tmpl.zone_hoejde_mm || 8;
-  const plader = pladeFordeling(t.antal, t.start, N);
-  let fejl = '';
-  if (!(t.antal > 0)) fejl = 'Slutnummeret skal være større end eller lig med startnummeret.';
-  else if (t.start > N) fejl = `Start slot ${t.start} findes ikke — pladen har ${N} slots.`;
-  knap.disabled = !!fejl;
-
-  const brugt = fejl ? 0 : plader[0];
-  // Skematisk plade: slots sidder på deres rigtige positioner, men tegnes som læsbare felter
-  // (de fysiske graveringszoner er ca. 18×8 mm og ville blive frimærker).
-  const xs = slots.map(s => +s.x), ys = slots.map(s => +s.y);
-  const trin = (arr) => { const u = [...new Set(arr.map(v => Math.round(v * 10) / 10))].sort((p, q) => p - q); return u.length > 1 ? Math.min(...u.slice(1).map((v, i) => v - u[i])) : null; };
-  const tw = Math.max(zw, (trin(xs) || zw * 2) * 0.8), th = Math.max(zh, (trin(ys) || zh * 2) * 0.72);
-  const cx = (s) => +s.x + zw / 2, cy = (s) => +s.y + zh / 2;
-  const x0 = Math.min(...slots.map(cx)) - tw / 2 - 3, y0 = Math.min(...slots.map(cy)) - th / 2 - 3;
-  const bw = Math.max(...slots.map(cx)) + tw / 2 + 3 - x0, bh = Math.max(...slots.map(cy)) + th / 2 + 3 - y0;
-  svg.setAttribute('viewBox', `${x0} ${y0} ${bw} ${bh}`);
-  const fs = th * 0.42;
-  svg.innerHTML = slots.map((s, i) => {
-    const bruger = i >= t.start - 1 && i < t.start - 1 + brugt;
-    return `<rect class="slot ${bruger ? 'brug' : ''}" x="${cx(s) - tw / 2}" y="${cy(s) - th / 2}" width="${tw}" height="${th}" rx="${th * 0.14}"/>` +
-      `<text class="slot-nr" x="${cx(s)}" y="${cy(s)}" font-size="${fs}" style="${bruger ? 'fill:#fff;font-weight:700' : ''}">${esc(s.nr ?? i + 1)}</text>`;
-  }).join('');
-
-  op.innerHTML = fejl
-    ? `<span style="color:var(--fejl)">${esc(fejl)}</span>`
-    : `<b>${t.antal}</b> ${t.antal === 1 ? 'nøgle' : 'nøgler'} → <b>${plader.length}</b> ${plader.length === 1 ? 'plade' : 'plader'} (${plader.join(' + ')})` +
-      (plader.length > 1 ? ` <span class="muted">· plade 2 og frem venter på hold, til du frigiver dem</span>` : '');
-}
-
+// ─── Nyt job ──────────────────────────────────────────────────────────────────
 async function sendJob() {
-  const status = $('job-status');
-  const t = jobTal();
-  if (!t) { toast('Vælg en template først', 'advarsel'); return; }
-  if (t.antal > 200 && !confirm(`Du er ved at oprette ${t.antal} nøgler. Er det rigtigt?`)) return;
-  status.textContent = 'Tjekker…';
-  const getVal = (id) => { const el = $(id); return el ? el.value.trim() : ''; };
-  const getNum = (id, def) => { const el = $(id); return el && el.value !== '' ? +el.value : def; };
-  const body = {
-    template_id: $('job-template').value,
-    maskine_id:  $('job-maskine').value,
+  const status = document.getElementById('job-status');
+  status.textContent = 'Sender...';
+
+  const getVal = (id) => {
+    const el = document.getElementById(id);
+    return el ? el.value.trim() : '';
+  };
+  const getNum = (id, def) => {
+    const el = document.getElementById(id);
+    return el && el.value !== '' ? +el.value : def;
+  };
+
+  const res = await api('/api/batches', 'POST', {
+    template_id: document.getElementById('job-template').value,
+    maskine_id:  document.getElementById('job-maskine').value,
     type_felt:   getVal('job-type').toUpperCase(),
     system_nr:   getVal('job-system').toUpperCase(),
     ekstra_tekst: getVal('job-ekstra').toUpperCase(),
@@ -223,169 +178,365 @@ async function sendJob() {
     antal:        getNum('job-antal', 1),
     navn:        getVal('job-navn') || null,
     start_slot:  getNum('job-startslot', 1) || 1,
-  };
-  // Passer teksterne i zonen med templatens skrifttyper? (Opretter intet.)
-  let tjek = null;
-  try { tjek = await api('/api/batches/tjek', 'POST', body); } catch (e) { tjek = null; }
-  if (tjek && ((tjek.fejl || []).length || (tjek.advarsler || []).length)) {
-    const linjer = [...(tjek.fejl || []), ...(tjek.advarsler || [])].map((x) => '• ' + x).join('\n');
-    const overskrift = (tjek.fejl || []).length ? 'Teksten passer ikke i nøglens zone:' : 'Tjek lige:';
-    if (!confirm(`${overskrift}\n${linjer}\n\nOpret ordren alligevel?`)) { status.textContent = ''; return; }
+  });
+  if (res.ok) {
+    status.textContent = `✓ ${res.jobs} jobs fordelt på ${res.batches} plader (${res.plade_size} slots/plade)`;
+    status.style.color = '#27ae60';
+  } else {
+    status.textContent = `✗ Fejl: ${res.fejl}`;
+    status.style.color = 'var(--accent)';
   }
-  status.textContent = 'Sender…';
-  try {
-    const res = await api('/api/batches', 'POST', body);
-    if (res.ok) {
-      status.textContent = '';
-      toast(`${res.jobs} nøgler lagt i køen (${res.batches} ${res.batches === 1 ? 'plade' : 'plader'})`, 'ok',
-            { tekst: 'Se kø', fn: () => gaaTil('koe-noegler') });
-    } else {
-      status.textContent = '';
-      toast(res.fejl || 'Kunne ikke oprette jobbet', 'fejl');
-    }
-  } catch (e) { status.textContent = ''; toast('Kunne ikke sende — ingen forbindelse?', 'fejl'); }
 }
 
-// ─── Jobkøer ──────────────────────────────────────────────────────────────────
-const STATUS_TEKST = { pending: 'Afventer', running: 'Sender…', done: 'Sendt', fejl: 'Fejl', 'on-hold': 'Venter på plade' };
-function statusBadge(st, fejl, kode) {
-  const tip = st === 'done' ? 'Programmet er sendt til maskinen' : (st === 'on-hold' ? 'Frigiv når pladen er skiftet' : '');
-  let ekstra = '';
-  if (fejl) {
-    if (st === 'fejl') {
-      ekstra = `<div class="fejltekst">${esc(fejl)}</div>`;
-      if (kode === 'forbindelse') ekstra += '<div class="notetekst">Intet blev sendt — sikkert at prøve igen.</div>';
-    } else {
-      ekstra = `<div class="notetekst">${esc(fejl)}</div>`;   // fx »Prøver igen om 5 s (forsøg 2 af 3)«
-    }
-  }
-  return `<span class="badge badge-${esc(st)}" title="${esc(tip)}">${esc(STATUS_TEKST[st] || st)}</span>` + ekstra;
+// ─── Jobkø ────────────────────────────────────────────────────────────────────
+function skiftJobkoTab(tab) {
+  document.querySelectorAll('#panel-jobkoe .tab-btn').forEach(b => b.classList.remove('aktiv'));
+  document.querySelectorAll('#panel-jobkoe .tab-content').forEach(c => c.classList.remove('aktiv'));
+  event.target.classList.add('aktiv');
+  document.getElementById('jobkoe-' + tab).classList.add('aktiv');
+  if (tab === 'noegler') hentBatches();
+  if (tab === 'skilte') hentSkilteKoe();
 }
-// Viser/skjuler »Prøv igen«-knappen når der er jobs der fejlede fordi maskinen ikke kunne nås
-function visGentagForbindelse(rows, knapId) {
-  const n = rows.filter(r => r.status === 'fejl' && r.fejl_kode === 'forbindelse').length;
-  const b = $(knapId);
-  if (!b) return;
-  b.style.display = n ? '' : 'none';
-  b.textContent = `↻ Prøv ${n} ${n === 1 ? 'job' : 'jobs'} igen (maskinen kunne ikke nås)`;
-}
-async function gentagForbindelsesfejl() {
-  const r = await api('/api/jobkoe/gentag-fejlede', 'POST', {});
-  if (r.ok) toast(`${r.noegler + r.skilte} ${r.noegler + r.skilte === 1 ? 'job' : 'jobs'} sat tilbage i køen`, 'ok');
-  else toast(r.fejl || 'Kunne ikke sætte jobs tilbage', 'fejl');
-  hentBatches(); hentSkilteKoe();
-}
-function koeOpdateret() { const el = $('koe-opdateret'); if (el) el.textContent = 'opdateret ' + new Date().toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
-
-let skilteKoeRows = [];
 
 async function hentSkilteKoe() {
-  const tbody = $('skilte-koe-tabel');
-  try {
-    const rows = await api('/api/skilte');
-    skilteKoeRows = rows;
-    visGentagForbindelse(rows, 'gentag-forb-skilte');
-    tbody.innerHTML = rows.length === 0
-      ? `<tr><td colspan="7" class="tomt"><span class="stor">🏷️</span>Ingen skilte i køen.<br><button class="btn btn-secondary btn-sm mt" onclick="gaaTil('skilte')">Lav et nyt skilt</button></td></tr>`
-      : rows.map(r => {
-          let tekst = '';
-          try { tekst = JSON.parse(r.linjer_json).map(l => l.tekst).filter(Boolean).join(' / '); } catch (e) {}
-          return `<tr>
-            <td class="m-skjul" data-label="ID">#${r.id}</td>
-            <td data-label="Tekst"><b>${esc(tekst || r.navn)}</b></td>
-            <td class="m-skjul" data-label="Størrelse">${r.skilt_bredde_mm}×${r.skilt_hoejde_mm} mm</td>
-            <td data-label="Maskine">${esc(r.maskine_navn)}</td>
-            <td data-label="Status">${statusBadge(r.status, r.fejl_besked, r.fejl_kode)}</td>
-            <td data-label="Oprettet">${relTid(r.oprettet)}</td>
-            <td class="act">
-              ${r.status === 'fejl' ? `<button class="btn btn-secondary btn-sm" onclick="gentagSkilt(${r.id}, '${esc(r.fejl_kode || '')}')">↻ Gentag</button>` : ''}
-              <button class="btn btn-ghost btn-sm" onclick="skilteLavIgen(${r.id})" title="Åbn med samme tekst og layout i Nyt skilt">⎘ Lav igen</button>
-              ${r.status === 'pending' ? `<button class="btn btn-danger btn-sm" onclick="annullerSkilt(${r.id})">Annuller</button>` : ''}
-            </td></tr>`;
-        }).join('');
-    koeOpdateret();
-  } catch (e) { tbody.innerHTML = `<tr><td colspan="7" class="tomt">Kunne ikke hente køen — <a href="#" onclick="hentSkilteKoe();return false;">prøv igen</a></td></tr>`; }
+  const rows = await api('/api/skilte');
+  document.getElementById('skilte-koe-tabel').innerHTML = rows.map(r => {
+    const linjer = JSON.parse(r.linjer_json);
+    return `<tr>
+      <td>#${r.id}</td><td>${esc(r.navn)}</td><td>${esc(r.template_navn) || '—'}</td>
+      <td>${r.skilt_bredde_mm}×${r.skilt_hoejde_mm} mm</td><td>${linjer.length} linjer</td>
+      <td>${esc(r.maskine_navn)}</td><td><span class="badge badge-${esc(r.status)}">${esc(r.status)}</span></td>
+      <td>${r.status==='pending'?`<button class="btn btn-danger" onclick="annullerSkilt(${r.id})" style="padding:4px 10px;font-size:0.8rem">Annuller</button>`:''}</td>
+    </tr>`;
+  }).join('');
+}
+
+let _refreshTimer = null;
+
+function _startAutoRefresh() {
+  _stopAutoRefresh();
+  _refreshTimer = setInterval(() => {
+    if (document.getElementById('panel-jobkoe').classList.contains('aktiv')) hentBatches();
+  }, 15000);
+}
+function _stopAutoRefresh() {
+  if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
 }
 
 async function hentBatches() {
-  const tbody = $('batch-tabel');
+  const tbody = document.getElementById('batch-tabel');
   try {
     const rows = await api('/api/batches');
-    visGentagForbindelse(rows, 'gentag-forb-noegler');
     tbody.innerHTML = rows.length === 0
-      ? `<tr><td colspan="10" class="tomt"><span class="stor">🔑</span>Ingen nøgle-jobs i køen.<br><button class="btn btn-secondary btn-sm mt" onclick="gaaTil('nyt-job')">Opret et nøgle-job</button></td></tr>`
-      : rows.map(r => `<tr>
-          <td class="m-skjul" data-label="ID">#${r.id}</td>
-          <td data-label="Navn"><b>${esc(r.navn)}</b></td>
-          <td class="m-skjul" data-label="Template">${esc(r.template_navn)}</td>
-          <td data-label="Maskine">${esc(r.maskine_navn)}</td>
-          <td class="m-skjul" data-label="Markering">${esc(r.type_felt) || '—'}</td>
-          <td class="m-skjul" data-label="System">${esc(r.system_nr) || '—'}</td>
-          <td data-label="Løbenr">${r.loebe_fra}–${r.loebe_til}</td>
-          <td data-label="Status">${statusBadge(r.status, r.fejl_besked, r.fejl_kode)}</td>
-          <td data-label="Oprettet">${relTid(r.oprettet)}</td>
-          <td class="act">
-            ${r.status === 'on-hold' ? `<button class="btn btn-primary btn-sm" onclick="frigiv(${r.id})">▶ Frigiv</button>` : ''}
-            ${r.status === 'fejl' ? `<button class="btn btn-secondary btn-sm" onclick="gentagBatch(${r.id}, '${esc(r.fejl_kode || '')}')">↻ Gentag</button>` : ''}
-            ${r.status === 'pending' || r.status === 'on-hold' ? `<button class="btn btn-danger btn-sm" onclick="annuller(${r.id})">Annuller</button>` : ''}
-          </td></tr>`).join('');
-    koeOpdateret();
-  } catch (e) { tbody.innerHTML = `<tr><td colspan="10" class="tomt">Kunne ikke hente køen — <a href="#" onclick="hentBatches();return false;">prøv igen</a></td></tr>`; }
+      ? '<tr><td colspan="9" style="text-align:center;color:var(--text-secondary);">Ingen jobs i køen</td></tr>'
+      : rows.map(r => `
+        <tr>
+          <td>#${r.id}</td><td>${esc(r.navn)}</td><td>${esc(r.template_navn)}</td><td>${esc(r.maskine_navn)}</td>
+          <td>${esc(r.type_felt)}</td><td>${esc(r.system_nr)}</td><td>${r.loebe_fra}–${r.loebe_til}</td>
+          <td><span class="badge badge-${esc(r.status)}">${esc(r.status)}</span></td>
+          <td class="gap">
+            ${r.status==='pending'||r.status==='on-hold'?`<button class="btn btn-danger" onclick="annuller(${r.id})" style="padding:4px 10px;font-size:0.8rem">Annuller</button>`:''}
+            ${r.status==='on-hold'?`<button class="btn btn-primary" onclick="frigiv(${r.id})" style="padding:4px 10px;font-size:0.8rem">▶ Frigiv</button>`:''}
+          </td>
+        </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="9" style="color:var(--accent);text-align:center;">Fejl ved indlæsning — <a href="#" onclick="hentBatches();return false;">prøv igen</a></td></tr>`;
+  }
 }
 
-async function frigiv(id) { await api(`/api/batches/${id}/frigiv`, 'POST'); toast('Plade frigivet til maskinen', 'ok'); hentBatches(); }
+async function frigiv(id) { await api(`/api/batches/${id}/frigiv`, 'POST'); hentBatches(); }
 async function annuller(id) { if (!confirm('Annuller dette job?')) return; await api(`/api/batches/${id}/annuller`, 'POST'); hentBatches(); }
-async function annullerSkilt(id) { if (!confirm('Annuller dette skilt?')) return; await api(`/api/skilte/${id}/annuller`, 'POST'); hentSkilteKoe(); }
 async function annullerAlle() {
-  if (!confirm('Annuller ALLE ventende og on-hold nøgle-jobs?')) return;
+  if (!confirm('Annuller ALLE ventende og on-hold jobs?')) return;
   const res = await api('/api/jobkoe/annuller-alle', 'POST');
-  if (res.ok) { toast(`${res.annulleret} jobs annulleret`, 'ok'); hentBatches(); }
-}
-
-const GENTAG_ADVARSEL = 'Send programmet til maskinen igen?\n\nHar maskinen allerede nået at gravere noget af dette job, bliver det graveret to gange. Tjek emnerne først.';
-// Fejlede jobbet fordi maskinen ikke kunne nås, er intet sendt → ingen risiko for dobbelt gravering, så ingen advarsel.
-async function gentagBatch(id, kode) {
-  if (kode !== 'forbindelse' && !confirm(GENTAG_ADVARSEL)) return;
-  const r = await api(`/api/batches/${id}/gentag`, 'POST');
-  toast(r.ok ? 'Sat tilbage i køen' : 'Kunne ikke gentage jobbet', r.ok ? 'ok' : 'fejl');
-  hentBatches();
-}
-async function gentagSkilt(id, kode) {
-  if (kode !== 'forbindelse' && !confirm(GENTAG_ADVARSEL)) return;
-  const r = await api(`/api/skilte/${id}/gentag`, 'POST');
-  toast(r.ok ? 'Sat tilbage i køen' : 'Kunne ikke gentage skiltet', r.ok ? 'ok' : 'fejl');
-  hentSkilteKoe();
+  if (res.ok) hentBatches();
 }
 
 async function rydOpJobkoe(type) {
-  if (!confirm('Fjern alle sendte og fejlede jobs fra listen?')) return;
-  const res = await api('/api/jobkoe/ryd-op', 'POST', { type });
+  if (!confirm('Slet alle færdige (done) og fejlede (fejl) jobs?')) return;
+  const res = await api(`/api/jobkoe/ryd-op`, 'POST', { type });
   if (res.ok) {
-    toast(`${res.slettet} jobs fjernet`, 'ok');
-    if (type === 'noegler') hentBatches(); else hentSkilteKoe();
+    if (type === 'noegler') hentBatches();
+    else hentSkilteKoe();
+    alert(`Slettet ${res.slettet} jobs`);
   }
 }
+
+// ─── Skilt visualisering ──────────────────────────────────────────────────────
+// Mapper Hershey font navne til CSS font-family approximationer
+function fontTilCSS(font) {
+  const m = {
+    'block':    'monospace',
+    'futural':  'Arial, sans-serif',
+    'romans':   'Arial, sans-serif',
+    'romanc':   'Georgia, serif',
+    'romand':   'Georgia, serif',
+    'romant':   '"Times New Roman", serif',
+    'italics':  'italic Georgia, serif',
+    'italiccs': 'italic Georgia, serif',
+    'italict':  'italic "Times New Roman", serif',
+    'scriptc':  'cursive',
+    'scripts':  'cursive',
+    'gothgbt':  '"Palatino Linotype", fantasy',
+    'gothgrt':  '"Palatino Linotype", fantasy',
+  };
+  return m[font] || 'monospace';
+}
+
+function fontErItalic(font) {
+  return font && (font.startsWith('italic') || font === 'italics' || font === 'italiccs' || font === 'italict');
+}
+
+function opdaterSkiltPreview() {
+  const svg = document.getElementById('skilt-preview');
+  if (!svg) return;
+
+  const bredde = +document.getElementById('skilt-bredde').value || 200;
+  const hoejde = +document.getElementById('skilt-hoejde').value || 100;
+  const mtIn = document.getElementById('skilt-margin-top').value;
+  const mbIn = document.getElementById('skilt-margin-bund').value;
+  const laIn = document.getElementById('skilt-linje-afstand').value;
+
+  const margin_top    = mtIn ? +mtIn : hoejde * 0.1;
+  const margin_bottom = mbIn ? +mbIn : hoejde * 0.1;
+  const linje_afstand = laIn ? +laIn : null;
+
+  const maxW = 400;
+  const maxH = 300;
+  const scale = Math.min(maxW / bredde, maxH / hoejde, 3);
+  const pad = 20;
+  const labelPad = 65;
+
+  const svgW = bredde * scale + pad * 2 + labelPad;
+  const svgH = hoejde * scale + pad * 2;
+
+  svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+  svg.setAttribute('width', svgW);
+  svg.setAttribute('height', svgH);
+
+  const antal = skiltLinjer.length || 1;
+  const tilg  = hoejde - margin_top - margin_bottom;
+
+  let yPositions = [];
+  if (antal === 1) {
+    yPositions = [margin_top + tilg / 2];
+  } else if (linje_afstand !== null) {
+    for (let i = 0; i < antal; i++) yPositions.push(margin_top + i * linje_afstand);
+  } else {
+    const spacing = tilg / (antal - 1);
+    for (let i = 0; i < antal; i++) yPositions.push(margin_top + i * spacing);
+  }
+
+  const colors = ['#e74c3c','#3498db','#27ae60','#f39c12','#9b59b6','#1abc9c','#e67e22','#e91e63','#00bcd4','#8bc34a'];
+  let html = '';
+
+  html += `<rect x="${pad}" y="${pad}" width="${bredde*scale}" height="${hoejde*scale}" fill="#f8f8f8" stroke="#222" stroke-width="2.5" rx="3"/>`;
+  html += `<text x="${pad + bredde*scale/2}" y="${pad - 7}" font-size="11" fill="#555" text-anchor="middle" font-family="sans-serif">${bredde} × ${hoejde} mm</text>`;
+
+  const mt = margin_top * scale;
+  const mb = margin_bottom * scale;
+  html += `<rect x="${pad}" y="${pad}" width="${bredde*scale}" height="${mt}" fill="#3498db11"/>`;
+  html += `<line x1="${pad}" y1="${pad + mt}" x2="${pad + bredde*scale}" y2="${pad + mt}" stroke="#3498db" stroke-dasharray="4,3" stroke-width="1"/>`;
+  html += `<text x="${pad + 3}" y="${pad + mt - 3}" font-size="9" fill="#3498db" font-family="sans-serif">↑ ${margin_top}mm</text>`;
+  html += `<rect x="${pad}" y="${pad + hoejde*scale - mb}" width="${bredde*scale}" height="${mb}" fill="#3498db11"/>`;
+  html += `<line x1="${pad}" y1="${pad + hoejde*scale - mb}" x2="${pad + bredde*scale}" y2="${pad + hoejde*scale - mb}" stroke="#3498db" stroke-dasharray="4,3" stroke-width="1"/>`;
+  html += `<text x="${pad + 3}" y="${pad + hoejde*scale - mb + 10}" font-size="9" fill="#3498db" font-family="sans-serif">↓ ${margin_bottom}mm</text>`;
+
+  skiltLinjer.forEach((l, i) => {
+    const tekst = l.tekst.trim() || `Linje ${i+1}`;
+    const th    = Math.max((l.hoejde_mm || 10) * scale, 8);
+    // Manuel Y overskriver auto
+    const y     = l.y_mm != null ? l.y_mm * scale : yPositions[i] * scale;
+    const jus   = l.justering || 'venstre';
+    const color = colors[i % colors.length];
+    const cssFont = fontTilCSS(l.font || 'block');
+    const isItalic = fontErItalic(l.font);
+    const tw    = Math.min(tekst.length * th * (isItalic ? 0.52 : 0.58), bredde * scale * 0.9);
+
+    // Manuel X overskriver justering
+    let tx;
+    if (l.x_mm != null)           tx = pad + l.x_mm * scale;
+    else if (jus === 'center')     tx = pad + (bredde*scale - tw) / 2;
+    else if (jus === 'hoejre')     tx = pad + bredde*scale * 0.95 - tw;
+    else                           tx = pad + bredde*scale * 0.05;
+
+    // Vis manuel placering med stiplet linje
+    if (l.x_mm != null) html += `<line x1="${tx}" y1="${pad}" x2="${tx}" y2="${pad + hoejde*scale}" stroke="${color}" stroke-dasharray="3,4" stroke-width="1" opacity="0.4"/>`;
+    if (l.y_mm != null) html += `<line x1="${pad}" y1="${pad + y}" x2="${pad + bredde*scale}" y2="${pad + y}" stroke="${color}" stroke-dasharray="3,4" stroke-width="1" opacity="0.4"/>`;
+
+    html += `<rect x="${tx - 2}" y="${pad + y - th + 2}" width="${tw + 4}" height="${th}" fill="${color}25" rx="2"/>`;
+    html += `<text x="${tx}" y="${pad + y}" font-size="${th * 0.85}" fill="${color}" font-family="${cssFont}" font-style="${isItalic?'italic':'normal'}" font-weight="${l.font==='romant'||l.font==='italict'||l.font==='gothgbt'?'bold':'normal'}">${esc(tekst.substring(0, 30))}</text>`;
+    
+    // Label: vis manuel eller auto placering
+    const xLabel = l.x_mm != null ? `X:${l.x_mm}mm` : jus;
+    const yLabel = l.y_mm != null ? `Y:${l.y_mm}mm` : 'auto';
+    html += `<text x="${pad + bredde*scale + 6}" y="${pad + y}" font-size="9" fill="${color}" font-family="sans-serif">${esc(l.font||'block')} ${l.hoejde_mm||10}mm · ${esc(xLabel)} · ${yLabel}</text>`;
+
+    if (i < skiltLinjer.length - 1) {
+      const y2 = yPositions[i+1] * scale;
+      const mx = pad + bredde*scale - 10;
+      const afstand = linje_afstand !== null ? linje_afstand : Math.round((yPositions[i+1] - yPositions[i]) * 10) / 10;
+      html += `<line x1="${mx}" y1="${pad + y}" x2="${mx}" y2="${pad + y2}" stroke="#aaa" stroke-width="1.5"/>`;
+      html += `<text x="${mx - 24}" y="${pad + (y + y2)/2 + 4}" font-size="8" fill="#888" font-family="sans-serif">${afstand}mm</text>`;
+    }
+
+    const dotX = jus === 'center' ? pad + bredde*scale/2 : jus === 'hoejre' ? pad + bredde*scale - 3 : pad + 3;
+    html += `<circle cx="${dotX}" cy="${pad + y - th/2}" r="3" fill="${color}" opacity="0.6"/>`;
+  });
+
+  svg.innerHTML = html;
+}
+
+// ─── Skilte ───────────────────────────────────────────────────────────────────
+function skiftSkiltType() {
+  const type = document.querySelector('input[name="skilt-type"]:checked').value;
+  document.getElementById('skilt-template-sektion').style.display = type === 'template' ? 'block' : 'none';
+  document.getElementById('skilt-frit-sektion').style.display = type === 'frit' ? 'block' : 'none';
+  if (type === 'template' && document.getElementById('skilt-template-valg').value) {
+    loadSkiltTemplate();
+  }
+}
+
+function loadSkiltTemplate() {
+  const id = document.getElementById('skilt-template-valg').value;
+  if (!id) return;
+  const tmpl = skiltTemplates.find(t => t.id == id);
+  if (!tmpl) return;
+
+  document.getElementById('skilt-bredde').value = tmpl.skilt_bredde_mm;
+  document.getElementById('skilt-hoejde').value = tmpl.skilt_hoejde_mm;
+  if (tmpl.maskine_id) document.getElementById('skilt-maskine').value = tmpl.maskine_id;
+
+  document.getElementById('skilt-margin-top').value    = tmpl.margin_top_mm || '';
+  document.getElementById('skilt-margin-bund').value   = tmpl.margin_bottom_mm || '';
+  document.getElementById('skilt-linje-afstand').value = tmpl.linje_afstand_mm || '';
+
+  const config = JSON.parse(tmpl.linjer_config);
+  skiltLinjer = config.map(c => ({
+    tekst: '', justering: c.justering, hoejde_mm: c.hoejde_mm, font: c.font,
+    x_mm: c.x_mm != null ? c.x_mm : null,
+    y_mm: c.y_mm != null ? c.y_mm : null,
+  }));
+  tegnSkiltLinjer();
+}
+
+function initSkilt() {
+  skiltLinjer = [{ tekst: '', justering: 'center', hoejde_mm: 10, font: 'block', x_mm: null, y_mm: null }];
+  tegnSkiltLinjer();
+  setTimeout(opdaterSkiltPreview, 100);
+}
+
+function tegnSkiltLinjer() {
+  const container = document.getElementById('skilt-linjer-container');
+  container.innerHTML = skiltLinjer.map((l, i) => `
+    <div style="background:var(--bg-tertiary);padding:10px;border-radius:6px;margin-bottom:8px;">
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;margin-bottom:6px;">
+        <div><label>Linje ${i+1} - Tekst</label><input value="${esc(l.tekst||'')}" onchange="skiltLinjer[${i}].tekst = this.value; opdaterSkiltPreview()"></div>
+        <div>
+          <label>Justering</label>
+          <select onchange="skiltLinjer[${i}].justering = this.value; opdaterSkiltPreview()">
+            <option value="venstre" ${l.justering==='venstre'?'selected':''}>Venstre</option>
+            <option value="center" ${l.justering==='center'?'selected':''}>Center</option>
+            <option value="hoejre" ${l.justering==='hoejre'?'selected':''}>Højre</option>
+          </select>
+        </div>
+        <div>
+          <label>Font</label>
+          <select onchange="skiltLinjer[${i}].font = this.value; opdaterSkiltPreview()">
+            ${Object.entries(fonts).map(([k,v]) => `<option value="${esc(k)}" ${l.font===k?'selected':''}>${esc(v)}</option>`).join('')}
+          </select>
+        </div>
+        <div><label>Højde (mm)</label><input type="number" value="${l.hoejde_mm||10}" step="0.5" onchange="skiltLinjer[${i}].hoejde_mm = +this.value; opdaterSkiltPreview()"></div>
+        <div><label>&nbsp;</label><button class="btn btn-danger" onclick="fjernLinje(${i})" style="padding:8px 12px;">✕</button></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:8px;">
+        <div>
+          <label style="color:#3498db;">X (mm) <span style="font-weight:normal;font-size:0.7rem;">tom=auto</span></label>
+          <input type="number" value="${l.x_mm!=null?l.x_mm:''}" step="0.5" placeholder="Auto (justering)" onchange="skiltLinjer[${i}].x_mm = this.value!==''?+this.value:null; opdaterSkiltPreview()">
+        </div>
+        <div>
+          <label style="color:#e74c3c;">Y (mm) <span style="font-weight:normal;font-size:0.7rem;">tom=auto</span></label>
+          <input type="number" value="${l.y_mm!=null?l.y_mm:''}" step="0.5" placeholder="Auto (fordelt)" onchange="skiltLinjer[${i}].y_mm = this.value!==''?+this.value:null; opdaterSkiltPreview()">
+        </div>
+        <div style="display:flex;align-items:flex-end;padding-bottom:2px;">
+          <span style="font-size:0.75rem;color:var(--text-secondary);">Tom = automatisk placering baseret på margener</span>
+        </div>
+      </div>
+    </div>
+  `).join('');
+  opdaterSkiltPreview();
+}
+
+function tilfoejLinje() {
+  if (skiltLinjer.length >= 10) { alert('Max 10 linjer tilladt'); return; }
+  skiltLinjer.push({ tekst: '', justering: 'center', hoejde_mm: 10, font: 'block', x_mm: null, y_mm: null });
+  tegnSkiltLinjer();
+}
+
+function fjernLinje(idx) {
+  skiltLinjer.splice(idx, 1);
+  if (skiltLinjer.length === 0) skiltLinjer.push({ tekst: '', justering: 'center', hoejde_mm: 10, font: 'block', x_mm: null, y_mm: null });
+  tegnSkiltLinjer();
+}
+
+async function sendSkilt() {
+  const status = document.getElementById('skilt-status');
+  status.textContent = 'Sender...';
+  
+  const type = document.querySelector('input[name="skilt-type"]:checked').value;
+  const template_id = type === 'template' ? document.getElementById('skilt-template-valg').value : null;
+  
+  const res = await api('/api/skilte', 'POST', {
+    maskine_id: document.getElementById('skilt-maskine').value,
+    template_id: template_id || null,
+    skilt_bredde_mm: +document.getElementById('skilt-bredde').value,
+    skilt_hoejde_mm: +document.getElementById('skilt-hoejde').value,
+    margin_top_mm: document.getElementById('skilt-margin-top').value ? +document.getElementById('skilt-margin-top').value : null,
+    margin_bottom_mm: document.getElementById('skilt-margin-bund').value ? +document.getElementById('skilt-margin-bund').value : null,
+    linje_afstand_mm: document.getElementById('skilt-linje-afstand').value ? +document.getElementById('skilt-linje-afstand').value : null,
+    linjer: skiltLinjer.filter(l => l.tekst.trim() !== ''),
+  });
+  
+  if (res.ok) {
+    status.textContent = '✓ Skilt sendt til jobkø';
+    status.style.color = 'var(--accent)';
+    hentSkilte();
+  } else {
+    status.textContent = '✗ Fejl ved oprettelse';
+    status.style.color = 'var(--accent)';
+  }
+}
+
+async function hentSkilte() {
+  const rows = await api('/api/skilte');
+  document.getElementById('skilte-tabel').innerHTML = rows.map(r => {
+    const linjer = JSON.parse(r.linjer_json);
+    return `<tr>
+      <td>#${r.id}</td><td>${esc(r.navn)}</td><td>${esc(r.template_navn) || '—'}</td>
+      <td>${r.skilt_bredde_mm}×${r.skilt_hoejde_mm} mm</td><td>${linjer.length} linjer</td>
+      <td>${esc(r.maskine_navn)}</td><td><span class="badge badge-${esc(r.status)}">${esc(r.status)}</span></td>
+      <td>${r.status==='pending'?`<button class="btn btn-danger" onclick="annullerSkilt(${r.id})" style="padding:4px 10px;font-size:0.8rem">Annuller</button>`:''}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function annullerSkilt(id) { await api(`/api/skilte/${id}/annuller`, 'POST'); hentSkilte(); }
 
 // ─── Nøgle-Templates ──────────────────────────────────────────────────────────
 async function hentTemplates() {
   const rows = await api('/api/templates');
   templates = rows; // opdater state så redigerTemplate kan finde dem
-  document.getElementById('template-tabel').innerHTML = rows.length === 0
-    ? `<tr><td colspan="7" class="tomt">Ingen nøgle-templates endnu.</td></tr>`
-    : rows.map(r => {
-    let slots = 0;
-    try { const g = JSON.parse(r.grid_json); slots = g.slots ? g.slots.length : 0; } catch (e) {}
+  document.getElementById('template-tabel').innerHTML = rows.map(r => {
+    const grid = JSON.parse(r.grid_json);
+    const slots = grid.slots ? grid.slots.length : 0;
     return `<tr>
-      <td class="m-skjul" data-label="ID">#${r.id}</td>
-      <td data-label="Navn"><span class="clickable" onclick="redigerTemplate(${r.id})">${esc(r.navn)}</span></td>
-      <td data-label="Nøgletype">${esc(r.noejle_type)}</td>
-      <td data-label="Zone">${r.zone_bredde_mm}×${r.zone_hoejde_mm} mm</td>
-      <td data-label="Materiale">${esc((materialer.find((m) => m.id === r.materiale_id) || {}).navn || (r.materiale_id ? '?' : 'Egne værdier'))}</td>
-      <td data-label="Slots">${slots} slots</td>
-      <td class="act">
-        <button class="btn btn-secondary btn-sm" onclick="redigerTemplate(${r.id})">Rediger</button>
-        <button class="btn btn-ghost btn-sm" onclick="kopierTemplate(${r.id})">Kopi</button>
-        <button class="btn btn-danger btn-sm" onclick="sletTemplate(${r.id})">Slet</button>
+      <td>#${r.id}</td>
+      <td class="clickable" onclick="redigerTemplate(${r.id})">${esc(r.navn)}</td>
+      <td>${esc(r.noejle_type)}</td><td>${r.zone_bredde_mm}×${r.zone_hoejde_mm} mm</td><td>${slots} slots</td>
+      <td class="gap">
+        <button class="btn btn-secondary" onclick="redigerTemplate(${r.id})" style="padding:4px 10px;font-size:0.8rem">Rediger</button>
+        <button class="btn btn-secondary" onclick="kopierTemplate(${r.id})" style="padding:4px 10px;font-size:0.8rem">Kopi</button>
+        <button class="btn btn-danger" onclick="sletTemplate(${r.id})" style="padding:4px 10px;font-size:0.8rem">Slet</button>
       </td>
     </tr>`;
   }).join('');
@@ -406,10 +557,6 @@ function visNyTemplate() {
   document.getElementById('t-rpm').value = '16000';
   document.getElementById('t-zop').value = '5';
   document.getElementById('t-prox').value = '1.5';
-  document.getElementById('t-dansk').checked = true;           // nye templates: ægte ÆØÅ
-  $('t-zinde').value = ''; $('t-fraeser').value = '';
-  saetMateriale(materialer.length ? materialer[0].id : null);   // nye templates: første materiale
-  ['t-mark-afst', 't-sys-afst', 't-loebe-afst', 't-ekstra-afst'].forEach((id) => { $(id).value = '0'; });
   
   document.getElementById('t-maskine').value = '';
   document.getElementById('t-mark-aktiv').checked = true;
@@ -477,13 +624,6 @@ async function redigerTemplate(id) {
   document.getElementById('t-rpm').value = tmpl.spindle_rpm;
   document.getElementById('t-zop').value = tmpl.z_op_mm;
   document.getElementById('t-prox').value = tmpl.prox_offset_mm || 1.5;
-  document.getElementById('t-dansk').checked = !!tmpl.dansk_tegn;
-  $('t-zinde').value = tmpl.z_loeft_inde_mm ?? ''; $('t-fraeser').value = tmpl.fraeser_bredde_mm ?? '';
-  saetMateriale(tmpl.materiale_id);
-  $('t-mark-afst').value = tmpl.markering_bogstav_afstand_mm || 0;
-  $('t-sys-afst').value = tmpl.system_bogstav_afstand_mm || 0;
-  $('t-loebe-afst').value = tmpl.loebe_bogstav_afstand_mm || 0;
-  $('t-ekstra-afst').value = tmpl.ekstra_bogstav_afstand_mm || 0;
   
   document.getElementById('t-maskine').value = tmpl.maskine_id || '';
   document.getElementById('t-mark-aktiv').checked = !!tmpl.markering_aktiv;
@@ -491,21 +631,21 @@ async function redigerTemplate(id) {
   document.getElementById('t-mark-x').value = tmpl.markering_x || 0;
   document.getElementById('t-mark-y').value = tmpl.markering_y || 0;
   document.getElementById('t-mark-jus').value = tmpl.markering_justering || 'venstre';
-  saetFontValg('t-mark-font', tmpl.markering_font);
+  document.getElementById('t-mark-font').value = tmpl.markering_font || '';
   document.getElementById('t-mark-hoejde').value = tmpl.markering_hoejde_mm || '';
   document.getElementById('t-sys-aktiv').checked = !!tmpl.system_aktiv;
   document.getElementById('t-sys-navn').value = tmpl.system_navn || 'System nr';
   document.getElementById('t-sys-x').value = tmpl.system_x || 0;
   document.getElementById('t-sys-y').value = tmpl.system_y || 5;
   document.getElementById('t-sys-jus').value = tmpl.system_justering || 'venstre';
-  saetFontValg('t-sys-font', tmpl.system_font);
+  document.getElementById('t-sys-font').value = tmpl.system_font || '';
   document.getElementById('t-sys-hoejde').value = tmpl.system_hoejde_mm || '';
   document.getElementById('t-loebe-aktiv').checked = !!tmpl.loebe_aktiv;
   document.getElementById('t-loebe-navn').value = tmpl.loebe_navn || 'Løbenr';
   document.getElementById('t-loebe-x').value = tmpl.loebe_x || 0;
   document.getElementById('t-loebe-y').value = tmpl.loebe_y || 0;
   document.getElementById('t-loebe-jus').value = tmpl.loebe_justering || 'hoejre';
-  saetFontValg('t-loebe-font', tmpl.loebe_font);
+  document.getElementById('t-loebe-font').value = tmpl.loebe_font || '';
   document.getElementById('t-loebe-hoejde').value = tmpl.loebe_hoejde_mm || '';
   document.getElementById('t-loebe-min').value = tmpl.loebe_min_laengde || 0;
   document.getElementById('t-loebe-prefix-aktiv').checked = !!tmpl.loebe_prefix_aktiv;
@@ -519,7 +659,7 @@ async function redigerTemplate(id) {
   document.getElementById('t-ekstra-x').value = tmpl.ekstra_x ?? 0;
   document.getElementById('t-ekstra-y').value = tmpl.ekstra_y ?? 10;
   document.getElementById('t-ekstra-jus').value = tmpl.ekstra_justering || 'venstre';
-  saetFontValg('t-ekstra-font', tmpl.ekstra_font);
+  document.getElementById('t-ekstra-font').value = tmpl.ekstra_font || '';
   document.getElementById('t-ekstra-hoejde').value = tmpl.ekstra_hoejde_mm || '';
   
   const grid = JSON.parse(tmpl.grid_json);
@@ -582,76 +722,63 @@ function tegnGrid() {
   `).join('');
 }
 
-// Formularens værdier i API'ets format (bruges af både gem og forhåndsvisning).
-function templateFormData() {
-  const v = (id, def) => { const el = $(id); return el ? el.value : def; };
-  const n = (id, def) => { const el = $(id); return el ? +el.value : def; };   // som før: tomt felt = 0
-  const chk = (id, def) => { const el = $(id); return el ? (el.checked ? 1 : 0) : def; };
-  return {
-    navn: v('t-navn', ''),
-    noejle_type: v('t-type', ''),
-    beskrivelse: v('t-beskrivelse', ''),
-    zone_bredde_mm: n('t-bredde', 18),
-    zone_hoejde_mm: n('t-hoejde', 8),
-    tekst_hoejde_mm: n('t-th', 3.5),
-    linje_afstand: 1.5,
-    feed_xy: n('t-fxy', 12),
-    feed_z: n('t-fz', 40),
-    spindle_rpm: n('t-rpm', 16000),
-    z_op_mm: n('t-zop', 5),
-    prox_offset_mm: n('t-prox', 1.5),
-    font: 'block',
-    dansk_tegn: chk('t-dansk', 1),
-    materiale_id: v('t-materiale', '') || null,
-    z_loeft_inde_mm: talEllerTom('t-zinde'),
-    fraeser_bredde_mm: talEllerTom('t-fraeser'),
-    maskine_id: v('t-maskine', '') || null,
-    markering_aktiv: chk('t-mark-aktiv', 1),
-    markering_navn: v('t-mark-navn', 'Markering'),
-    markering_x: n('t-mark-x', 0),
-    markering_y: n('t-mark-y', 0),
-    markering_justering: v('t-mark-jus', 'venstre'),
-    markering_font: v('t-mark-font', '') || null,
-    markering_hoejde_mm: n('t-mark-hoejde', 0) || 0,
-    markering_bogstav_afstand_mm: n('t-mark-afst', 0) || 0,
-    system_aktiv: chk('t-sys-aktiv', 1),
-    system_navn: v('t-sys-navn', 'System nr'),
-    system_x: n('t-sys-x', 0),
-    system_y: n('t-sys-y', 5),
-    system_justering: v('t-sys-jus', 'venstre'),
-    system_font: v('t-sys-font', '') || null,
-    system_hoejde_mm: n('t-sys-hoejde', 0) || 0,
-    system_bogstav_afstand_mm: n('t-sys-afst', 0) || 0,
-    loebe_aktiv: chk('t-loebe-aktiv', 1),
-    loebe_navn: v('t-loebe-navn', 'Løbenr'),
-    loebe_x: n('t-loebe-x', 0),
-    loebe_y: n('t-loebe-y', 0),
-    loebe_justering: v('t-loebe-jus', 'hoejre'),
-    loebe_font: v('t-loebe-font', '') || null,
-    loebe_hoejde_mm: n('t-loebe-hoejde', 0) || 0,
-    loebe_bogstav_afstand_mm: n('t-loebe-afst', 0) || 0,
-    loebe_min_laengde: n('t-loebe-min', 0),
-    loebe_prefix_aktiv: chk('t-loebe-prefix-aktiv', 0),
-    loebe_suffix_aktiv: chk('t-loebe-suffix-aktiv', 0),
-    markering_position: n('t-mark-pos', 1) || 1,
-    system_position: n('t-sys-pos', 2) || 2,
-    loebe_position: n('t-loebe-pos', 3) || 3,
-    ekstra_position: n('t-ekstra-pos', 4) || 4,
-    ekstra_aktiv: chk('t-ekstra-aktiv', 0),
-    ekstra_navn: v('t-ekstra-navn', 'Ekstra'),
-    ekstra_x: n('t-ekstra-x', 0),
-    ekstra_y: n('t-ekstra-y', 10),
-    ekstra_justering: v('t-ekstra-jus', 'venstre'),
-    ekstra_font: v('t-ekstra-font', '') || null,
-    ekstra_hoejde_mm: n('t-ekstra-hoejde', 0) || 0,
-    ekstra_bogstav_afstand_mm: n('t-ekstra-afst', 0) || 0,
-    grid: { kolonner: n('t-grid-kol', 0), raekker: n('t-grid-raek', 0), slots: gridSlots },
-  };
-}
-
 async function gemTemplate() {
   try {
-    const data = templateFormData();
+    const kol = +document.getElementById('t-grid-kol').value;
+    const raek = +document.getElementById('t-grid-raek').value;
+    
+    const data = {
+      navn: document.getElementById('t-navn').value,
+      noejle_type: document.getElementById('t-type').value,
+      beskrivelse: document.getElementById('t-beskrivelse').value,
+      zone_bredde_mm: +document.getElementById('t-bredde').value,
+      zone_hoejde_mm: +document.getElementById('t-hoejde').value,
+      tekst_hoejde_mm: +document.getElementById('t-th').value,
+      linje_afstand: 1.5,
+      feed_xy: +document.getElementById('t-fxy').value,
+      feed_z: +document.getElementById('t-fz').value,
+      spindle_rpm: +document.getElementById('t-rpm').value,
+      z_op_mm: +document.getElementById('t-zop').value,
+      prox_offset_mm: +document.getElementById('t-prox').value,
+      font: 'block',
+      maskine_id: document.getElementById('t-maskine').value || null,
+      markering_aktiv: document.getElementById('t-mark-aktiv') ? (document.getElementById('t-mark-aktiv').checked ? 1 : 0) : 1,
+      markering_navn:  document.getElementById('t-mark-navn') ? document.getElementById('t-mark-navn').value : 'Markering',
+      markering_x: document.getElementById('t-mark-x') ? +document.getElementById('t-mark-x').value : 0,
+      markering_y: document.getElementById('t-mark-y') ? +document.getElementById('t-mark-y').value : 0,
+      markering_justering: document.getElementById('t-mark-jus') ? document.getElementById('t-mark-jus').value : 'venstre',
+      markering_font: document.getElementById('t-mark-font') ? (document.getElementById('t-mark-font').value || null) : null,
+      markering_hoejde_mm: document.getElementById('t-mark-hoejde') ? (+document.getElementById('t-mark-hoejde').value || 0) : 0,
+      system_aktiv: document.getElementById('t-sys-aktiv') ? (document.getElementById('t-sys-aktiv').checked ? 1 : 0) : 1,
+      system_navn:  document.getElementById('t-sys-navn') ? document.getElementById('t-sys-navn').value : 'System nr',
+      system_x: document.getElementById('t-sys-x') ? +document.getElementById('t-sys-x').value : 0,
+      system_y: document.getElementById('t-sys-y') ? +document.getElementById('t-sys-y').value : 5,
+      system_justering: document.getElementById('t-sys-jus') ? document.getElementById('t-sys-jus').value : 'venstre',
+      system_font: document.getElementById('t-sys-font') ? (document.getElementById('t-sys-font').value || null) : null,
+      system_hoejde_mm: document.getElementById('t-sys-hoejde') ? (+document.getElementById('t-sys-hoejde').value || 0) : 0,
+      loebe_aktiv: document.getElementById('t-loebe-aktiv') ? (document.getElementById('t-loebe-aktiv').checked ? 1 : 0) : 1,
+      loebe_navn:  document.getElementById('t-loebe-navn') ? document.getElementById('t-loebe-navn').value : 'Løbenr',
+      loebe_x: document.getElementById('t-loebe-x') ? +document.getElementById('t-loebe-x').value : 0,
+      loebe_y: document.getElementById('t-loebe-y') ? +document.getElementById('t-loebe-y').value : 0,
+      loebe_justering: document.getElementById('t-loebe-jus') ? document.getElementById('t-loebe-jus').value : 'hoejre',
+      loebe_font: document.getElementById('t-loebe-font') ? (document.getElementById('t-loebe-font').value || null) : null,
+      loebe_hoejde_mm: document.getElementById('t-loebe-hoejde') ? (+document.getElementById('t-loebe-hoejde').value || 0) : 0,
+      loebe_min_laengde: document.getElementById('t-loebe-min') ? +document.getElementById('t-loebe-min').value : 0,
+      loebe_prefix_aktiv: document.getElementById('t-loebe-prefix-aktiv') ? (document.getElementById('t-loebe-prefix-aktiv').checked ? 1 : 0) : 0,
+      loebe_suffix_aktiv: document.getElementById('t-loebe-suffix-aktiv') ? (document.getElementById('t-loebe-suffix-aktiv').checked ? 1 : 0) : 0,
+      markering_position: document.getElementById('t-mark-pos') ? (+document.getElementById('t-mark-pos').value || 1) : 1,
+      system_position:    document.getElementById('t-sys-pos')  ? (+document.getElementById('t-sys-pos').value  || 2) : 2,
+      loebe_position:     document.getElementById('t-loebe-pos')? (+document.getElementById('t-loebe-pos').value|| 3) : 3,
+      ekstra_position:    document.getElementById('t-ekstra-pos')?(+document.getElementById('t-ekstra-pos').value|| 4) : 4,
+      ekstra_aktiv: document.getElementById('t-ekstra-aktiv') ? (document.getElementById('t-ekstra-aktiv').checked ? 1 : 0) : 0,
+      ekstra_navn:  document.getElementById('t-ekstra-navn') ? document.getElementById('t-ekstra-navn').value : 'Ekstra',
+      ekstra_x: document.getElementById('t-ekstra-x') ? +document.getElementById('t-ekstra-x').value : 0,
+      ekstra_y: document.getElementById('t-ekstra-y') ? +document.getElementById('t-ekstra-y').value : 10,
+      ekstra_justering: document.getElementById('t-ekstra-jus') ? document.getElementById('t-ekstra-jus').value : 'venstre',
+      ekstra_font: document.getElementById('t-ekstra-font') ? (document.getElementById('t-ekstra-font').value || null) : null,
+      ekstra_hoejde_mm: document.getElementById('t-ekstra-hoejde') ? (+document.getElementById('t-ekstra-hoejde').value || 0) : 0,
+      grid: { kolonner: kol, raekker: raek, slots: gridSlots },
+    };
     
     let res;
     if (redigerTemplateId) {
@@ -661,15 +788,14 @@ async function gemTemplate() {
     }
     
     if (res.ok) { 
-      toast('Template gemt', 'ok');
       await initDropdowns();
-      hentTemplates();
+      hentTemplates(); 
       skjulTemplateForm();
     } else {
-      toast('Kunne ikke gemme: ' + (res.fejl || 'ukendt fejl'), 'fejl');
+      alert('Fejl ved gem: ' + (res.fejl || JSON.stringify(res)));
     }
   } catch(e) {
-    toast('Fejl ved gem af template: ' + e.message, 'fejl');
+    alert('JavaScript fejl i gemTemplate: ' + e.message + '\n\nElement: ' + e.stack);
   }
 }
 
@@ -702,34 +828,27 @@ async function kopierTemplate(id) {
   document.getElementById('t-rpm').value = tmpl.spindle_rpm;
   document.getElementById('t-zop').value = tmpl.z_op_mm;
   document.getElementById('t-prox').value = tmpl.prox_offset_mm || 1.5;
-  document.getElementById('t-dansk').checked = !!tmpl.dansk_tegn;
-  $('t-zinde').value = tmpl.z_loeft_inde_mm ?? ''; $('t-fraeser').value = tmpl.fraeser_bredde_mm ?? '';
-  saetMateriale(tmpl.materiale_id);
-  $('t-mark-afst').value = tmpl.markering_bogstav_afstand_mm || 0;
-  $('t-sys-afst').value = tmpl.system_bogstav_afstand_mm || 0;
-  $('t-loebe-afst').value = tmpl.loebe_bogstav_afstand_mm || 0;
-  $('t-ekstra-afst').value = tmpl.ekstra_bogstav_afstand_mm || 0;
   document.getElementById('t-maskine').value = tmpl.maskine_id || '';
   document.getElementById('t-mark-aktiv').checked = !!tmpl.markering_aktiv;
   document.getElementById('t-mark-navn').value = tmpl.markering_navn || 'Markering';
   document.getElementById('t-mark-x').value = tmpl.markering_x || 0;
   document.getElementById('t-mark-y').value = tmpl.markering_y || 0;
   document.getElementById('t-mark-jus').value = tmpl.markering_justering || 'venstre';
-  saetFontValg('t-mark-font', tmpl.markering_font);
+  document.getElementById('t-mark-font').value = tmpl.markering_font || '';
   document.getElementById('t-mark-hoejde').value = tmpl.markering_hoejde_mm || '';
   document.getElementById('t-sys-aktiv').checked = !!tmpl.system_aktiv;
   document.getElementById('t-sys-navn').value = tmpl.system_navn || 'System nr';
   document.getElementById('t-sys-x').value = tmpl.system_x || 0;
   document.getElementById('t-sys-y').value = tmpl.system_y || 5;
   document.getElementById('t-sys-jus').value = tmpl.system_justering || 'venstre';
-  saetFontValg('t-sys-font', tmpl.system_font);
+  document.getElementById('t-sys-font').value = tmpl.system_font || '';
   document.getElementById('t-sys-hoejde').value = tmpl.system_hoejde_mm || '';
   document.getElementById('t-loebe-aktiv').checked = !!tmpl.loebe_aktiv;
   document.getElementById('t-loebe-navn').value = tmpl.loebe_navn || 'Løbenr';
   document.getElementById('t-loebe-x').value = tmpl.loebe_x || 0;
   document.getElementById('t-loebe-y').value = tmpl.loebe_y || 0;
   document.getElementById('t-loebe-jus').value = tmpl.loebe_justering || 'hoejre';
-  saetFontValg('t-loebe-font', tmpl.loebe_font);
+  document.getElementById('t-loebe-font').value = tmpl.loebe_font || '';
   document.getElementById('t-loebe-hoejde').value = tmpl.loebe_hoejde_mm || '';
   document.getElementById('t-loebe-min').value = tmpl.loebe_min_laengde || 0;
   document.getElementById('t-loebe-prefix-aktiv').checked = !!tmpl.loebe_prefix_aktiv;
@@ -743,7 +862,7 @@ async function kopierTemplate(id) {
   document.getElementById('t-ekstra-x').value = tmpl.ekstra_x ?? 0;
   document.getElementById('t-ekstra-y').value = tmpl.ekstra_y ?? 10;
   document.getElementById('t-ekstra-jus').value = tmpl.ekstra_justering || 'venstre';
-  saetFontValg('t-ekstra-font', tmpl.ekstra_font);
+  document.getElementById('t-ekstra-font').value = tmpl.ekstra_font || '';
   document.getElementById('t-ekstra-hoejde').value = tmpl.ekstra_hoejde_mm || '';
 
   const grid = JSON.parse(tmpl.grid_json);

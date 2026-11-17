@@ -232,3 +232,21 @@ async function opdaterStatus() {
 }
 setInterval(opdaterStatus, 4000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) opdaterStatus(); });
+
+// ─── Kører serveren en ældre version end denne side? ──────────────────────────
+// Sker hvis filerne er opdateret, men tjenesten ikke er genstartet: så svarer
+// den gamle proces, som ikke kender de nye API'er. Sig det tydeligt i stedet
+// for at lade halvdelen af siden fejle i stilhed.
+async function tjekServerVersion() {
+  let gammel = false;
+  try { gammel = (await fetch('/api/fonts/info', { cache: 'no-store' })).status === 404; } catch (e) { return; }
+  if (!gammel || $('genstart-banner')) return;
+  const b = document.createElement('div');
+  b.id = 'genstart-banner';
+  b.setAttribute('role', 'alert');
+  b.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:9999;background:#b45309;color:#fff;' +
+    'padding:12px 16px;font-weight:600;text-align:center;box-shadow:0 -2px 12px rgba(0,0,0,.35)';
+  b.textContent = 'nGrave er opdateret, men tjenesten er ikke genstartet — noget af siden virker ikke endnu. ' +
+    'Genstart tjenesten (systemctl restart ngrave) eller serveren.';
+  document.body.appendChild(b);
+}

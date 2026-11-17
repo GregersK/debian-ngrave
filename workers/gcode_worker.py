@@ -1,5 +1,6 @@
 """S5 Worker - G-code over TCP (nøgler) med prox og relativ Z-løft"""
 import socket, time
+from . import _samme_version  # noqa: F401  (skal stå FØR de andre workers-importer)
 from .font_manager import get_strokes
 from .forbindelse import aabn
 from .optimering import optimer
@@ -69,12 +70,19 @@ def felt_def(tmpl):
     """Aktive felter: (job-felt, præfiks, x, y, justering, font, højde, bogstavafstand)."""
     th = tmpl['tekst_hoejde_mm']
     font = tmpl.get('font', 'block') or 'block'
+    # kun_block: templaten er fra v6.1.x, hvor ALLE skrifttyper i praksis blev
+    # graveret i Block. Den graverer fortsat sådan, til nogen slår det fra.
+    # Mangler feltet helt, kommer rækken fra en database der endnu ikke er
+    # migreret (en v6.1-proces der ikke er genstartet efter opdateringen, men
+    # indlæser dette modul): også dér gælder v6.1's opførsel — Block.
+    kun_block = bool(tmpl.get('kun_block', 1))
     ud = []
     for felt_navn, p, dx, dy, djus, daktiv in FELTER:
         if not tmpl.get(f'{p}_aktiv', daktiv):
             continue
         ud.append((felt_navn, p, tmpl.get(f'{p}_x', dx), tmpl.get(f'{p}_y', dy),
-                   tmpl.get(f'{p}_justering', djus), tmpl.get(f'{p}_font') or font,
+                   tmpl.get(f'{p}_justering', djus),
+                   'block' if kun_block else (tmpl.get(f'{p}_font') or font),
                    float(tmpl.get(f'{p}_hoejde_mm') or 0) or th,
                    float(tmpl.get(f'{p}_bogstav_afstand_mm') or 0)))
     return ud
@@ -120,11 +128,12 @@ def byg_batch(jobs, tmpl):
     # efter nøglens sidste streg, så kørslen til næste nøgle er som før.
     inde = tmpl.get('z_loeft_inde_mm')
     inde = float(inde) if inde not in (None, '') and float(inde) > 0 else None
+    zo  += oz
     if inde is not None:
-        inde = max(inde, MIN_LOEFT_INDE_MM) + oz
+        # Minimum gælder det FAKTISKE løft (efter maskinens Z-offset, der kan være negativt).
+        inde = max(inde + oz, MIN_LOEFT_INDE_MM)
         if inde >= zo:
             inde = None
-    zo  += oz
     niveau = tmpl.get('optimering', 'ingen')
 
     lines = ["M24","G28 Z0","G20","G90",f"M3 S{rpm}"]

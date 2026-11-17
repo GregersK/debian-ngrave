@@ -19,6 +19,10 @@ import threading
 from .block_font import get_strokes as block_strokes
 from . import dansk as _dansk
 
+# Hæves når en funktion de andre workers-moduler kalder ændrer form
+# (se _samme_version.py). 2 = get_strokes(..., dansk) + INFO/FontFejl/manglende_tegn.
+API = 2
+
 FONT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'fonts')
 
 # ─── Register ────────────────────────────────────────────────────────────────
@@ -87,6 +91,11 @@ _CACHE = {}
 _LAAS = threading.Lock()
 
 
+class FontFejl(ValueError):
+    """En kendt skrifttype kunne ikke indlæses (manglende pakke/fil). Der graveres
+    ALDRIG stille i en anden skrifttype — jobbet fejler med denne besked."""
+
+
 def font_id(font):
     """Normaliseret id (gamle aliaser → rigtige navne). Ukendt → 'block'."""
     f = font or 'block'
@@ -101,13 +110,19 @@ def get_strokes(tekst, tekst_hoejde_mm, font='block', bogstav_afstand_mm=0.0, da
         return block_strokes(tekst, tekst_hoejde_mm, afst)
     fid = _ALIAS.get(font, font)
     info = INFO.get(fid)
+    if info is None or info['kilde'] == 'block':
+        # Ukendt id (fx fra en meget gammel template) → Block, som altid.
+        return block_strokes(tekst, tekst_hoejde_mm, afst)
     try:
-        if info and info['kilde'] == 'svg':
+        if info['kilde'] == 'svg':
             return _svg_strokes(tekst, tekst_hoejde_mm, info, afst)
         return _hershey_strokes(tekst, tekst_hoejde_mm, fid, afst, dansk)
-    except Exception:
-        # Bibliotek/fil mangler eller ukendt font → fald tilbage til block.
-        return block_strokes(tekst, tekst_hoejde_mm, afst)
+    except Exception as e:
+        # Før faldt dette stille tilbage til Block — dvs. en hel plade nøgler i
+        # en anden skrift og bredde end den valgte. Nu fejler jobbet tydeligt.
+        hvad = ("Python-pakken hershey-fonts mangler (kør: venv/bin/pip install -r requirements.txt)"
+                if isinstance(e, ImportError) else f"{type(e).__name__}: {e}")
+        raise FontFejl(f"Skrifttypen «{info['navn']}» kunne ikke indlæses — {hvad}") from e
 
 
 def manglende_tegn(tekst, font='block'):

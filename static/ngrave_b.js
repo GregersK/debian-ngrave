@@ -1,133 +1,152 @@
-// ─── Forhåndsvisning af nøgle-template (de rigtige gravér-streger) ────────────
-// Serveren lægger felterne ud med SAMME motor som graveringen (/api/templates/preview),
-// så det man ser er det der graveres — inkl. skrifttype, ÆØÅ og bogstavafstand.
-const FELT_FARVER = { markering: '#2f80ed', system: '#27ae60', loebe: '#e08e0b', ekstra: '#9b59b6' };
-let _tPrevSeq = 0;
-
-const opdaterPreview = debounce(async () => {
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║ KOMPATIBILITETS-KOPI fra v6.1.1 — bruges IKKE af den nye brugerflade.    ║
+// ║                                                                          ║
+// ║ Når en server opdateres, skiftes filerne på disken ud FØR tjenesten      ║
+// ║ genstartes. Sker genstarten ikke (fx manglende rettigheder), kører den   ║
+// ║ gamle v6.1-proces videre med den gamle side i hukommelsen — og den side  ║
+// ║ henter netop denne fil. Derfor ligger v6.1.1-koden uændret her, så       ║
+// ║ produktionen fortsætter, og et banner beder om en genstart.              ║
+// ║ Den nye brugerflade ligger i ui.js, noegler.js, skilt.js og system.js.   ║
+// ║ Kan fjernes når ingen servere længere kører v6.1.x.                      ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+// ─── Visualisering af felt-placering ────────────────────────────────────────────
+function opdaterPreview() {
   const svg = document.getElementById('felt-preview');
-  if (!svg || !$('template-form') || $('template-form').style.display === 'none') return;
-  const seq = ++_tPrevSeq;
-  const data = templateFormData();
-  data.eksempel = {
-    type_felt: ($('t-eks-mark').value || '').toUpperCase(), system_nr: ($('t-eks-sys').value || '').toUpperCase(),
-    loebe_nr: $('t-eks-loebe').value || '', ekstra_tekst: ($('t-eks-ekstra').value || '').toUpperCase(),
-  };
-  let lay;
-  try { lay = await api('/api/templates/preview', 'POST', data); } catch (e) { return; }
-  if (seq !== _tPrevSeq || !lay || !lay.zone) return;
-
-  const z = lay.zone, pad = Math.max(z.bredde, z.hoejde) * 0.12 + 1;
-  let x0 = -pad, y0 = z.top - pad, x1 = z.bredde + pad, y1 = z.top + z.hoejde + pad;
-  lay.felter.forEach((f) => { if (f.bbox) { x0 = Math.min(x0, f.bbox[0] - 1); y0 = Math.min(y0, f.bbox[1] - 2.2); x1 = Math.max(x1, f.bbox[2] + 1); y1 = Math.max(y1, f.bbox[3] + 1); } });
-  svg.setAttribute('viewBox', `${x0} ${y0} ${x1 - x0} ${y1 - y0}`);
-  const navne = { markering: $('t-mark-navn').value, system: $('t-sys-navn').value, loebe: $('t-loebe-navn').value, ekstra: $('t-ekstra-navn').value };
-  const fs = Math.max(0.9, z.hoejde * 0.09);
-  let h = `<rect class="zone" x="0" y="${z.top}" width="${z.bredde}" height="${z.hoejde}" rx="0.4"/>`;
-  const streg = +lay.stregbredde_mm || 0;     // fræserens stregbredde i mm (0 = ukendt → tynd linje)
-  lay.felter.forEach((f) => {
-    const farve = FELT_FARVER[f.felt] || '#333';
-    const d = f.paths.map((p) => 'M' + p.map((pt) => pt[0] + ' ' + pt[1]).join('L')).join('');
-    h += streg
-      ? `<path d="${d}" fill="none" stroke="${farve}" stroke-opacity=".85" stroke-width="${streg}" stroke-linecap="round" stroke-linejoin="round"/>`
-      : `<path d="${d}" fill="none" stroke="${farve}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
-    if (f.bbox) h += `<text x="${f.bbox[0]}" y="${f.bbox[1] - 0.5}" font-size="${fs}" fill="${farve}" font-family="system-ui,sans-serif">${esc(navne[f.felt] || f.felt)}</text>`;
-  });
-  svg.innerHTML = h;
-
-  const b = $('felt-banner');
-  if (lay.fejl.length) b.innerHTML = `<div class="banner fejl"><b>Passer ikke i zonen</b><ul>${lay.fejl.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>`;
-  else if (lay.advarsler.length) b.innerHTML = `<div class="banner advarsel"><b>Tjek lige</b><ul>${lay.advarsler.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>`;
-  else b.innerHTML = lay.felter.length ? '<div class="banner ok">✓ Alle felter passer i zonen</div>' : '';
-  const st = lay.statistik || {};
-  $('felt-preview-info').textContent = `Zone ${z.bredde} × ${z.hoejde} mm` +
-    (lay.materiale ? ` · ${lay.materiale}` : '') +
-    (streg ? ` · stregerne vist i fræserens bredde (${String(streg).replace('.', ',')} mm)` : ' · fræserens stregbredde ukendt — tynde linjer') +
-    ` · pr. nøgle: ${st.loeft ?? 0} penneløft, ${Math.round(st.fraesevej_mm || 0)} mm fræsevej`;
-}, 150);
-
-// ─── Materialer (nøgler) ──────────────────────────────────────────────────────
-const MAT_FORM = [['mat-navn', 'navn'], ['mat-beskrivelse', 'beskrivelse'], ['mat-fxy', 'feed_xy'], ['mat-fz', 'feed_z'],
-                  ['mat-rpm', 'spindle_rpm'], ['mat-zop', 'z_op_mm'], ['mat-zinde', 'z_loeft_inde_mm'],
-                  ['mat-prox', 'prox_offset_mm'], ['mat-fraeser', 'fraeser'], ['mat-bredde', 'fraeser_bredde_mm']];
-const fmtMm = (v) => (v == null || v === '' ? '—' : String(v).replace('.', ',') + ' mm');
-
-async function hentMaterialer() {
-  let rows = [];
-  try { rows = await api('/api/materialer'); } catch (e) { toast('Kunne ikke hente materialer', 'fejl'); return; }
-  materialer = rows;
-  $('materiale-tabel').innerHTML = rows.length === 0
-    ? `<tr><td colspan="9" class="tomt">Ingen materialer endnu.<br><button class="btn btn-secondary btn-sm mt" onclick="visNytMateriale()">+ Opret fx Messing og Akryl/plast</button></td></tr>`
-    : rows.map((m) => `<tr>
-      <td data-label="Navn"><span class="clickable" onclick="redigerMateriale(${m.id})"><b>${esc(m.navn)}</b></span>${m.beskrivelse ? `<div class="small muted">${esc(m.beskrivelse)}</div>` : ''}</td>
-      <td data-label="Feed XY / Z">${m.feed_xy} / ${m.feed_z} in/min</td>
-      <td data-label="rpm">${m.spindle_rpm}</td>
-      <td data-label="Z-løft">${fmtMm(m.z_op_mm)}</td>
-      <td data-label="Mellem bogst.">${m.z_loeft_inde_mm == null ? '<span class="muted">= Z-løft</span>' : fmtMm(m.z_loeft_inde_mm)}</td>
-      <td data-label="Prox">${fmtMm(m.prox_offset_mm)}</td>
-      <td data-label="Fræser">${esc(m.fraeser || '—')}${m.fraeser_bredde_mm ? ` <span class="muted">(${fmtMm(m.fraeser_bredde_mm)})</span>` : ''}</td>
-      <td data-label="Templates">${m.templates}</td>
-      <td class="act">
-        <button class="btn btn-secondary btn-sm" onclick="redigerMateriale(${m.id})">Rediger</button>
-        <button class="btn btn-ghost btn-sm" onclick="kopierMateriale(${m.id})">Kopi</button>
-        <button class="btn btn-danger btn-sm" onclick="sletMateriale(${m.id})" ${m.templates ? 'disabled title="Bruges af templates"' : ''}>Slet</button>
-      </td></tr>`).join('');
-}
-
-function udfyldMateriale(m, titel, id) {
-  $('materiale-form-titel').textContent = titel;
-  $('mat-id').value = id || '';
-  MAT_FORM.forEach(([el, k]) => { $(el).value = m && m[k] != null ? m[k] : ''; });
-  $('materiale-form').style.display = 'block';
-  $('materiale-form').scrollIntoView({ behavior: 'smooth' });
-  $('mat-navn').focus();
-}
-function visNytMateriale() {
-  // Udgangspunkt: det første materiale (typisk Messing) — man retter bare det der er anderledes.
-  const forlaeg = materialer[0] ? { ...materialer[0], navn: '', beskrivelse: '' } : { z_op_mm: 5, prox_offset_mm: 1.5 };
-  udfyldMateriale(forlaeg, 'Nyt materiale', null);
-}
-function redigerMateriale(id) {
-  const m = materialer.find((x) => x.id === id);
-  if (m) udfyldMateriale(m, `Rediger — ${m.navn}`, id);
-}
-function kopierMateriale(id) {
-  const m = materialer.find((x) => x.id === id);
-  if (m) udfyldMateriale({ ...m, navn: m.navn + ' (kopi)' }, 'Nyt materiale (kopi)', null);
-}
-async function gemMateriale() {
-  const data = {};
-  MAT_FORM.forEach(([el, k]) => { data[k] = $(el).value.trim(); });
-  const id = $('mat-id').value;
-  const res = id ? await api(`/api/materialer/${id}`, 'PUT', data) : await api('/api/materialer', 'POST', data);
-  if (res.ok) {
-    toast('Materiale gemt', 'ok');
-    $('materiale-form').style.display = 'none';
-    await initDropdowns();
-    hentMaterialer();
-  } else {
-    toast(res.fejl || 'Kunne ikke gemme', 'fejl');
+  if (!svg) return;
+  
+  const zoneB = +document.getElementById('t-bredde').value || 18;
+  const zoneH = +document.getElementById('t-hoejde').value || 8;
+  const th = +document.getElementById('t-th').value || 3.5;
+  
+  const felter = [
+    { aktiv: document.getElementById('t-mark-aktiv').checked,  navn: document.getElementById('t-mark-navn').value || 'Markering',
+      tekst: 'L1', x: +document.getElementById('t-mark-x').value, y: +document.getElementById('t-mark-y').value,
+      jus: document.getElementById('t-mark-jus').value, color: '#3498db',
+      font: document.getElementById('t-mark-font').value || 'block',
+      fth: +document.getElementById('t-mark-hoejde').value || th },
+    { aktiv: document.getElementById('t-sys-aktiv').checked, navn: document.getElementById('t-sys-navn').value || 'System',
+      tekst: 'A0938E', x: +document.getElementById('t-sys-x').value, y: +document.getElementById('t-sys-y').value,
+      jus: document.getElementById('t-sys-jus').value, color: '#27ae60',
+      font: document.getElementById('t-sys-font').value || 'block',
+      fth: +document.getElementById('t-sys-hoejde').value || th },
+    { aktiv: document.getElementById('t-loebe-aktiv').checked, navn: document.getElementById('t-loebe-navn').value || 'Løbenr',
+      tekst: '1', x: +document.getElementById('t-loebe-x').value, y: +document.getElementById('t-loebe-y').value,
+      jus: document.getElementById('t-loebe-jus').value, color: '#f39c12',
+      font: document.getElementById('t-loebe-font').value || 'block',
+      fth: +document.getElementById('t-loebe-hoejde').value || th },
+    { aktiv: document.getElementById('t-ekstra-aktiv').checked, navn: document.getElementById('t-ekstra-navn').value || 'Ekstra',
+      tekst: 'EKS', x: +document.getElementById('t-ekstra-x').value, y: +document.getElementById('t-ekstra-y').value,
+      jus: document.getElementById('t-ekstra-jus').value, color: '#9b59b6',
+      font: document.getElementById('t-ekstra-font').value || 'block',
+      fth: +document.getElementById('t-ekstra-hoejde').value || th },
+  ];
+  
+  const scale = 8;
+  const pad = 30;
+  const zoneW_px = zoneB * scale;
+  const zoneH_px = zoneH * scale + 60;
+  const svgW = Math.max(zoneW_px + pad * 2, 400);
+  const svgH = Math.max(zoneH_px + pad * 2, 250);
+  
+  svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+  svg.setAttribute('width', svgW);
+  svg.setAttribute('height', svgH);
+  
+  function calcX(offsetX, tekst, jus) {
+    const tw = tekst.length * th * 0.6;
+    if (jus === 'hoejre') return offsetX + zoneB - tw;
+    if (jus === 'center') return offsetX + (zoneB - tw) / 2;
+    return offsetX;
   }
-}
-async function sletMateriale(id) {
-  const m = materialer.find((x) => x.id === id);
-  if (!confirm(`Slet materialet «${m ? m.navn : id}»?`)) return;
-  const res = await api(`/api/materialer/${id}`, 'DELETE');
-  if (res.ok) { toast('Materiale slettet', 'ok'); await initDropdowns(); hentMaterialer(); }
-  else toast(res.fejl || 'Kunne ikke slette', 'fejl');
+  
+  const zoneX0 = pad;
+  const zoneY0 = pad;
+  
+  let html = '';
+  html += `<rect x="${zoneX0}" y="${zoneY0}" width="${zoneW_px}" height="${zoneH*scale}" fill="#e0e0e0" stroke="#999" stroke-dasharray="4,2"/>`;
+  html += `<rect x="${zoneX0}" y="${zoneY0 + zoneH*scale}" width="${zoneW_px}" height="60" fill="#f5f5f5" stroke="#ccc" stroke-dasharray="2,2"/>`;
+  
+  felter.forEach(f => {
+    if (!f.aktiv) return;
+    const fth = f.fth || th;
+    const cssFont = fontTilCSS(f.font);
+    const isItalic = fontErItalic(f.font);
+    const fx = calcX(f.x, f.tekst, f.jus);
+    const yPos = zoneY0 + f.y * scale + fth * scale;
+    html += `<text x="${zoneX0 + fx*scale}" y="${yPos}" font-size="${fth*scale}" fill="${f.color}" font-family="${cssFont}" font-style="${isItalic?'italic':'normal'}">${f.tekst}</text>`;
+    html += `<circle cx="${zoneX0 + fx*scale}" cy="${yPos}" r="3" fill="${f.color}"/>`;
+    html += `<text x="${zoneX0 + fx*scale + 8}" y="${yPos - fth*scale - 2}" font-size="8" fill="${f.color}" font-family="sans-serif">${esc(f.navn)}</text>`;
+  });
+  
+  html += `<circle cx="${zoneX0}" cy="${zoneY0}" r="4" fill="#e94560" stroke="#fff" stroke-width="1"/>`;
+  html += `<text x="${zoneX0 - 25}" y="${zoneY0 - 5}" font-size="10" fill="#666">0,0</text>`;
+  html += `<text x="${zoneX0 + zoneW_px/2}" y="${zoneY0 - 8}" font-size="10" fill="#666" text-anchor="middle">Zone: ${zoneB}×${zoneH} mm</text>`;
+  
+  svg.innerHTML = html;
 }
 
 // ─── Skilt-Templates ──────────────────────────────────────────────────────────
+async function hentSkiltTemplates() {
+  const rows = await api('/api/skilt-templates');
+  skiltTemplates = rows; // opdater state så redigerSkiltTemplate kan finde dem
+  document.getElementById('skilt-template-tabel').innerHTML = rows.map(r => `<tr>
+    <td>#${r.id}</td>
+    <td class="clickable" onclick="redigerSkiltTemplate(${r.id})">${esc(r.navn)}</td>
+    <td>${r.skilt_bredde_mm}×${r.skilt_hoejde_mm} mm</td><td>${r.antal_linjer} linjer</td>
+    <td class="gap">
+      <button class="btn btn-secondary" onclick="redigerSkiltTemplate(${r.id})" style="padding:4px 10px;font-size:0.8rem">Rediger</button>
+      <button class="btn btn-danger" onclick="sletSkiltTemplate(${r.id})" style="padding:4px 10px;font-size:0.8rem">Slet</button>
+    </td>
+  </tr>`).join('');
+}
+
+function visNySkiltTemplate() {
+  redigerSkiltTemplateId = null;
+  linjeConfig = [];
+  document.getElementById('skilt-template-form-titel').textContent = 'Ny skilt-template';
+  document.getElementById('st-id').value = '';
+  document.getElementById('st-navn').value = '';
+  document.getElementById('st-beskrivelse').value = '';
+  document.getElementById('st-bredde').value = '200';
+  document.getElementById('st-hoejde').value = '100';
+  document.getElementById('st-antal').value = '2';
+  document.getElementById('st-maskine').value = '';
+  document.getElementById('st-margin-top').value = '';
+  document.getElementById('st-margin-bund').value = '';
+  document.getElementById('st-linje-afstand').value = '';
+  opdaterLinjeConfig();
+  document.getElementById('skilt-template-form').style.display = 'block';
+}
+
+async function redigerSkiltTemplate(id) {
+  redigerSkiltTemplateId = id;
+  // Hent altid frisk data fra API
+  const all = await api('/api/skilt-templates');
+  skiltTemplates = all;
+  const tmpl = skiltTemplates.find(t => t.id == id);
+  if (!tmpl) return;
+  
+  document.getElementById('skilt-template-form-titel').textContent = 'Rediger skilt-template';
+  document.getElementById('st-id').value = id;
+  document.getElementById('st-navn').value = tmpl.navn;
+  document.getElementById('st-beskrivelse').value = tmpl.beskrivelse || '';
+  document.getElementById('st-bredde').value = tmpl.skilt_bredde_mm;
+  document.getElementById('st-hoejde').value = tmpl.skilt_hoejde_mm;
+  document.getElementById('st-antal').value = tmpl.antal_linjer;
+  document.getElementById('st-maskine').value = tmpl.maskine_id || '';
+  document.getElementById('st-margin-top').value    = tmpl.margin_top_mm || '';
+  document.getElementById('st-margin-bund').value   = tmpl.margin_bottom_mm || '';
+  document.getElementById('st-linje-afstand').value = tmpl.linje_afstand_mm || '';
+  opdaterLinjeConfig(JSON.parse(tmpl.linjer_config));
+  document.getElementById('skilt-template-form').style.display = 'block';
+}
+
 async function testMaskine() {
   const id = document.getElementById('k-id').value;
   const status = document.getElementById('k-status');
   status.textContent = '⏳ Sender test-kommando...';
   status.style.color = 'var(--text-secondary)';
-  let res = await api(`/api/maskiner/${id}/test`, 'POST');
-  if (res.kraever_bekraeftelse) {            // maskinen har lige fået et program og graverer formentlig stadig
-    if (!confirm(res.fejl)) { status.textContent = ''; return; }
-    res = await api(`/api/maskiner/${id}/test`, 'POST', { tving: true });
-  }
+  const res = await api(`/api/maskiner/${id}/test`, 'POST');
   if (res.ok) {
     status.textContent = '✓ Maskinen kører til kalibreret position (0,0) med Z oppe';
     status.style.color = '#27ae60';
@@ -137,59 +156,133 @@ async function testMaskine() {
   }
 }
 
+function skjulSkiltTemplateForm() {
+  document.getElementById('skilt-template-form').style.display = 'none';
+  redigerSkiltTemplateId = null;
+}
+
+let linjeConfig = [];
+
+function opdaterLinjeConfig(existing = null) {
+  const antal = +document.getElementById('st-antal').value;
+  if (existing) {
+    linjeConfig = existing;
+  } else {
+    // Bevar eksisterende linjer, tilføj eller fjern efter behov
+    while (linjeConfig.length < antal) {
+      linjeConfig.push({ justering: 'center', hoejde_mm: 10, font: 'block' });
+    }
+    linjeConfig = linjeConfig.slice(0, antal);
+  }
+  tegnLinjeConfig();
+}
+
+function tegnLinjeConfig() {
+  const container = document.getElementById('st-linjer-container');
+  container.innerHTML = linjeConfig.map((l, i) => `
+    <div style="background:var(--bg-primary);padding:10px;border-radius:6px;margin-bottom:8px;border:1px solid var(--border);">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;margin-bottom:6px;">
+        <div><label>Linje ${i+1}</label></div>
+        <div>
+          <label>Justering</label>
+          <select onchange="linjeConfig[${i}].justering = this.value">
+            <option value="venstre" ${l.justering==='venstre'?'selected':''}>Venstre</option>
+            <option value="center" ${l.justering==='center'?'selected':''}>Center</option>
+            <option value="hoejre" ${l.justering==='hoejre'?'selected':''}>Højre</option>
+          </select>
+        </div>
+        <div>
+          <label>Font</label>
+          <select onchange="linjeConfig[${i}].font = this.value">
+            ${Object.entries(fonts).map(([k,v]) => `<option value="${esc(k)}" ${l.font===k?'selected':''}>${esc(v)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label>Højde (mm)</label>
+          <input type="number" value="${l.hoejde_mm||10}" step="0.5" onchange="linjeConfig[${i}].hoejde_mm = +this.value">
+        </div>
+        <div><label>&nbsp;</label><button class="btn btn-danger" onclick="fjernLinjeConfig(${i})" style="padding:8px 12px;">✕</button></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:8px;">
+        <div>
+          <label style="color:#3498db;">X (mm) <span style="font-weight:normal;font-size:0.7rem;">tom=auto</span></label>
+          <input type="number" value="${l.x_mm!=null?l.x_mm:''}" step="0.5" placeholder="Auto" onchange="linjeConfig[${i}].x_mm = this.value!==''?+this.value:null">
+        </div>
+        <div>
+          <label style="color:#e74c3c;">Y (mm) <span style="font-weight:normal;font-size:0.7rem;">tom=auto</span></label>
+          <input type="number" value="${l.y_mm!=null?l.y_mm:''}" step="0.5" placeholder="Auto" onchange="linjeConfig[${i}].y_mm = this.value!==''?+this.value:null">
+        </div>
+        <div style="display:flex;align-items:flex-end;padding-bottom:2px;">
+          <span style="font-size:0.75rem;color:var(--text-secondary);">Tom = auto placering fra margener</span>
+        </div>
+      </div>
+    </div>
+  `).join('') + `
+  <div class="mt gap">
+    <button class="btn btn-secondary" onclick="tilfoejLinjeConfig()">+ Tilføj linje</button>
+    <span style="color:var(--text-secondary);font-size:0.8rem;">(${linjeConfig.length} linjer)</span>
+  </div>`;
+}
+
+function tilfoejLinjeConfig() {
+  if (linjeConfig.length >= 10) return;
+  linjeConfig.push({ justering: 'center', hoejde_mm: 10, font: 'block', x_mm: null, y_mm: null });
+  document.getElementById('st-antal').value = linjeConfig.length;
+  tegnLinjeConfig();
+}
+
+function fjernLinjeConfig(idx) {
+  if (linjeConfig.length <= 1) return;
+  linjeConfig.splice(idx, 1);
+  document.getElementById('st-antal').value = linjeConfig.length;
+  tegnLinjeConfig();
+}
+
+async function gemSkiltTemplate() {
+  const mtVal = document.getElementById('st-margin-top').value;
+  const mbVal = document.getElementById('st-margin-bund').value;
+  const laVal = document.getElementById('st-linje-afstand').value;
+
+  const data = {
+    navn: document.getElementById('st-navn').value,
+    beskrivelse: document.getElementById('st-beskrivelse').value,
+    skilt_bredde_mm: +document.getElementById('st-bredde').value,
+    skilt_hoejde_mm: +document.getElementById('st-hoejde').value,
+    antal_linjer: +document.getElementById('st-antal').value,
+    linjer_config: linjeConfig,
+    margin_top_mm: mtVal ? +mtVal : null,
+    margin_bottom_mm: mbVal ? +mbVal : null,
+    linje_afstand_mm: laVal ? +laVal : null,
+    maskine_id: document.getElementById('st-maskine').value || null,
+  };
+  
+  let res;
+  if (redigerSkiltTemplateId) {
+    res = await api(`/api/skilt-templates/${redigerSkiltTemplateId}`, 'PUT', data);
+  } else {
+    res = await api('/api/skilt-templates', 'POST', data);
+  }
+  
+  if (res.ok) { 
+    await initDropdowns();
+    hentSkiltTemplates(); 
+    skjulSkiltTemplateForm(); 
+  }
+}
 
 // ─── Maskiner ──────────────────────────────────────────────────────────────────
 async function hentMaskiner() {
   const rows = await api('/api/maskiner');
-  document.getElementById('maskiner-tabel').innerHTML = rows.length === 0
-    ? `<tr><td colspan="13" class="tomt"><span class="stor">⚙</span>Ingen maskiner endnu.<br><button class="btn btn-secondary btn-sm mt" onclick="visNyMaskine()">+ Tilføj den første maskine</button></td></tr>`
-    : rows.map(r => `<tr>
-    <td data-label="ID">#${r.id}</td><td data-label="Navn"><b>${esc(r.navn)}</b></td><td data-label="Model">${esc(r.model)}</td>
-    <td data-label="Protokol">${esc(r.protokol)}</td><td data-label="IP">${esc(r.ip)}</td><td data-label="Port">${r.port}</td>
-    <td data-label="Forbindelse" id="ms-${r.id}"><span class="ms ukendt"><span class="dot"></span>Tjekker…</span></td>
-    <td data-label="Offset X">${r.offset_x || 0} mm</td><td data-label="Offset Y">${r.offset_y || 0} mm</td><td data-label="Offset Z">${r.offset_z || 0} mm</td>
-    <td data-label="Spejl Y">${r.spejl_y ? '✓' : '—'}</td>
-    <td data-label="Hastighed">${esc({ fuld: 'Fuld', let: 'Let', ingen: 'Ingen' }[r.optimering] || 'Fuld')}</td>
-    <td class="act">
-      <button class="btn btn-secondary btn-sm" onclick="pingMaskine(${r.id})" title="Opretter og lukker en forbindelse — sender ingen data">Tjek nu</button>
-      <button class="btn btn-secondary btn-sm" onclick="redigerMaskine(${r.id})">Rediger</button>
-      <button class="btn btn-secondary btn-sm" onclick="redigerKalibrering(${r.id})">Kalibrér</button>
-      <button class="btn btn-danger btn-sm" onclick="sletMaskine(${r.id})">Slet</button>
+  document.getElementById('maskiner-tabel').innerHTML = rows.map(r => `<tr>
+    <td>#${r.id}</td><td>${esc(r.navn)}</td><td>${esc(r.model)}</td><td>${esc(r.protokol)}</td><td>${esc(r.ip)}</td><td>${r.port}</td>
+    <td>${r.offset_x || 0} mm</td><td>${r.offset_y || 0} mm</td><td>${r.offset_z || 0} mm</td>
+    <td>${r.spejl_y ? '✓' : '—'}</td>
+    <td class="gap">
+      <button class="btn btn-secondary" onclick="redigerMaskine(${r.id})" style="padding:4px 10px;font-size:0.8rem">Rediger</button>
+      <button class="btn btn-secondary" onclick="redigerKalibrering(${r.id})" style="padding:4px 10px;font-size:0.8rem">Kalibrér</button>
+      <button class="btn btn-danger" onclick="sletMaskine(${r.id})" style="padding:4px 10px;font-size:0.8rem">Slet</button>
     </td>
   </tr>`).join('');
-  hentMaskinStatus();
-}
-
-const MS_TEKST = { online: 'Online', offline: 'Svarer ikke', afviser: 'Afviser forbindelsen', ukendt: 'Ikke tjekket endnu' };
-async function hentMaskinStatus() {
-  let liste;
-  try { liste = await api('/api/maskiner/status'); } catch (e) { return; }
-  liste.forEach(m => {
-    const el = document.getElementById('ms-' + m.id);
-    if (!el) return;
-    maskinStatus[m.id] = m.status;
-    let sub = '';
-    if (m.koe && m.koe.running) sub = 'Sender nu';
-    else if (m.graverer_formentlig) sub = `Program sendt for ${sekTekst(m.sendt_sek_siden)} — graverer formentlig (tjekker ikke forbindelsen imens)`;
-    else if (m.status === 'online') sub = `svarede ${sekTekst(m.tjekket_sek_siden)}${m.ms != null ? ' · ' + m.ms + ' ms' : ''}`;
-    else if (m.status === 'ukendt') sub = 'Første tjek kommer om lidt';
-    else sub = `${esc(m.fejl || '')}${m.set_online_sek_siden != null ? ' · sidst online ' + sekTekst(m.set_online_sek_siden) : ''}`;
-    if (m.koe && m.koe.pending) sub += `${sub ? ' · ' : ''}${m.koe.pending} i kø`;
-    el.innerHTML = `<span class="ms ${esc(m.status)}"><span class="dot"></span>${esc(MS_TEKST[m.status] || m.status)}</span><span class="ms-sub">${sub}</span>`;
-  });
-  opdaterMaskineAdvarsler();
-}
-
-async function pingMaskine(id) {
-  const el = document.getElementById('ms-' + id);
-  if (el) el.innerHTML = '<span class="ms ukendt"><span class="dot"></span>Tjekker…</span>';
-  try {
-    const r = await api(`/api/maskiner/${id}/ping`, 'POST');
-    if (r.status === 'online') toast(`Maskinen svarer (${r.ms} ms)`, 'ok');
-    else if (r.status === 'optaget') toast(r.besked, 'info');
-    else toast(r.fejl || 'Maskinen svarer ikke', 'fejl');
-  } catch (e) { toast('Kunne ikke tjekke maskinen', 'fejl'); }
-  hentMaskinStatus();
 }
 
 function visNyMaskine() {
@@ -200,7 +293,6 @@ function visNyMaskine() {
   document.getElementById('m-protokol').value = 'gcode';
   document.getElementById('m-ip').value = '';
   document.getElementById('m-port').value = '22000';
-  document.getElementById('m-optimering').value = 'fuld';
   document.getElementById('m-status').textContent = '';
   document.getElementById('maskine-form').style.display = 'block';
   document.getElementById('maskine-form').scrollIntoView({behavior:'smooth'});
@@ -217,7 +309,6 @@ async function redigerMaskine(id) {
   document.getElementById('m-protokol').value = r.protokol || 'gcode';
   document.getElementById('m-ip').value = r.ip || '';
   document.getElementById('m-port').value = r.port || '';
-  document.getElementById('m-optimering').value = r.optimering || 'fuld';
   document.getElementById('m-status').textContent = '';
   document.getElementById('maskine-form').style.display = 'block';
   document.getElementById('maskine-form').scrollIntoView({behavior:'smooth'});
@@ -231,7 +322,6 @@ async function gemMaskine() {
     protokol: document.getElementById('m-protokol').value,
     ip: document.getElementById('m-ip').value.trim(),
     port: +document.getElementById('m-port').value,
-    optimering: document.getElementById('m-optimering').value,
   };
   if (!data.navn || !data.model || !data.ip || !data.port) {
     document.getElementById('m-status').textContent = '✗ Udfyld alle felter';
@@ -260,83 +350,6 @@ async function sletMaskine(id) {
   if (res.ok) {
     await initDropdowns();
     hentMaskiner();
-  }
-}
-
-// ─── Backup: eksport/import af templates ─────────────────────────────────────
-async function eksporterTemplates() {
-  const status = document.getElementById('backup-status');
-  status.textContent = 'Eksporterer...';
-  status.style.color = 'var(--text-secondary)';
-  try {
-    const data = await api('/api/export');
-    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
-    const url = URL.createObjectURL(blob);
-    const dato = new Date().toISOString().slice(0, 10);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `ngrave-templates-${dato}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    status.textContent = `✓ Eksporteret: ${data.templates.length} nøgle-templates, ${data.skilt_templates.length} skilt-templates`;
-    status.style.color = '#27ae60';
-  } catch (e) {
-    status.textContent = '✗ Eksport fejlede';
-    status.style.color = 'var(--accent)';
-  }
-}
-
-async function importerTemplates(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const status = document.getElementById('backup-status');
-  status.textContent = 'Importerer...';
-  status.style.color = 'var(--text-secondary)';
-  try {
-    const text = await file.text();
-    const data = JSON.parse(text);
-    const res = await api('/api/import', 'POST', data);
-    if (res.ok) {
-      status.textContent = `✓ Nøgle-templates: ${res.templates.created} nye, ${res.templates.updated} opdateret · ` +
-        `Skilt-templates: ${res.skilt_templates.created} nye, ${res.skilt_templates.updated} opdateret`;
-      status.style.color = '#27ae60';
-      await initDropdowns();
-      hentTemplates();
-      hentSkiltTemplates();
-    } else {
-      status.textContent = '✗ Import fejlede: ' + (res.fejl || 'ukendt fejl');
-      status.style.color = 'var(--accent)';
-    }
-  } catch (e) {
-    status.textContent = '✗ Ugyldig fil: ' + e.message;
-    status.style.color = 'var(--accent)';
-  }
-  input.value = '';
-}
-
-// System-info: kørende version + seneste auto-opdaterings-log (til at se
-// hvorfor en opdatering evt. fejlede — også fra mobil, efter en reboot).
-async function visSystemInfo() {
-  const pre = document.getElementById('sys-log');
-  const ver = document.getElementById('sys-version');
-  pre.style.display = 'block';
-  pre.textContent = 'Henter...';
-  try {
-    const info = await api('/api/systeminfo');
-    if (ver) ver.textContent = (info.version ? '· ' + info.version : '') +
-      (info.channel === 'beta' ? '  ⚠️ BETA-kanal' : '') +
-      (info.last_check ? '  · sidst tjekket ' + info.last_check.replace('T',' ') : '');
-    const adv = info.advarsel
-      ? `⚠️ ${info.advarsel}\n${'─'.repeat(40)}\n`
-      : '';
-    pre.textContent = adv + ((info.update_log && info.update_log.length)
-      ? info.update_log.join('\n')
-      : '(ingen opdaterings-log endnu)');
-    pre.style.borderLeft = info.advarsel ? '4px solid var(--accent)' : '';
-  } catch (e) {
-    pre.textContent = 'Kunne ikke hente system-info';
   }
 }
 
@@ -389,10 +402,35 @@ async function gemKalibrering() {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 (async () => {
-  byggNav();
-  maalHeader();
-  try { await initDropdowns(); } catch (e) { toast('Kunne ikke hente data fra serveren', 'fejl'); }
+  await initDropdowns();
   opdaterJobFelter();
-  gaaTil(location.hash.slice(1) || 'nyt-job', { noHash: true, noScroll: true });
-  opdaterStatus();
+  initSkilt();
+  hentBatches();
+})();
+
+
+// ─── v6.2+: filerne er opdateret, men tjenesten kører stadig v6.1 ─────────────
+// (ui.js findes kun i den nye version — ligger den på disken, er en opdatering
+// hentet, men ikke taget i brug.)
+(function () {
+  function vis() {
+    if (document.getElementById('ngrave-genstart-banner')) return;
+    var b = document.createElement('div');
+    b.id = 'ngrave-genstart-banner';
+    b.setAttribute('role', 'alert');
+    b.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#b45309;color:#fff;' +
+      'padding:12px 16px;font:600 15px/1.4 system-ui,sans-serif;text-align:center;box-shadow:0 -2px 12px rgba(0,0,0,.35)';
+    b.textContent = 'En ny version af nGrave er hentet, men er ikke taget i brug endnu. ' +
+      'Genstart tjenesten (systemctl restart ngrave) eller serveren. Alt virker som før indtil da.';
+    document.body.appendChild(b);
+  }
+  function tjek() {
+    try {
+      fetch('/static/ui.js', { method: 'HEAD', cache: 'no-store' })
+        .then(function (r) { if (r.ok) vis(); })
+        .catch(function () {});
+    } catch (e) {}
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', tjek); else tjek();
+  setInterval(tjek, 10 * 60 * 1000);
 })();

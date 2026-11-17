@@ -151,9 +151,10 @@ ngrave/
 ├── static/
 │   ├── ngrave.css          # Designsystem (lyst/mørkt, mobil først)
 │   ├── ui.js               # Hjælpere, toasts, modal, navigation, statuslinje
-│   ├── ngrave_a.js         # Nøgle-job, plade-visning, køer
+│   ├── noegler.js          # Nøgle-job, plade-visning, køer, nøgle-templates
 │   ├── skilt.js            # Skilt-editor, preview, skrifttype-galleri
-│   └── ngrave_b.js         # Templates, maskiner, system, backup
+│   ├── system.js           # Template-preview, materialer, maskiner, system, backup
+│   └── ngrave_a.js / ngrave_b.js  # UÆNDREDE v6.1.1-kopier — kun til en ikke-genstartet v6.1-proces (se nedenfor)
 ├── fonts/                  # Medfølgende SVG-fonte (Relief, EMS) + licenser
 └── tests/                  # Enhedstests (layout, fonte, kø, API) + golden_v61.json
 ```
@@ -186,12 +187,21 @@ Single-stroke font håndkodet i `block_font.py` med fuld dansk tegnsæt (ÆØÅ/
 
 *Løft mellem bogstaver* (`z_loeft_inde_mm`): inden for én nøgle løftes kun så meget; efter nøglens sidste streg løftes det fulde Z-løft før kørslen til næste nøgle. Minimum 1,5 mm (nøglehovedets ramme kan være op til 1 mm høj) håndhæves både ved gem og i G-code-generatoren. Gælder S5 (G-code); CIPHER (S3) bruger kun materialets feed.
 
+### Opdatering fra v6.1.x — hvad sker der?
+- **Eksisterende nøgler graverer præcis som før.** I v6.1.x virkede skrifttyperne ikke: alt blev graveret i Block, uanset hvad templaten stod til. Templates der har valgt en anden skrifttype end Block, får ved opdateringen markeringen *Gravér alt i Block (som i v6.1)* (`templates.kun_block`) og et mærke i listen. Fjern fluebenet i templaten for at bruge de valgte skrifttyper.
+- **Eksisterende maskiner står på optimering *Ingen*** — byte-identiske programmer, indtil den slås til pr. maskine. Nye maskiner får *Fuld*.
+- **Bliver tjenesten ikke genstartet efter opdateringen** (fx mangler rettigheder), kører den gamle proces videre: `static/ngrave_a.js`/`ngrave_b.js` er derfor uændrede v6.1.1-kopier, siden virker som før og viser et banner om at genstarte, og `workers/_samme_version.py` sikrer at nye og gamle gravér-moduler ikke blandes. Den nye side bruger `ui.js`, `noegler.js`, `skilt.js` og `system.js`.
+- `ngrave-update.sh` genstarter direkte som root (mange servere har ikke `sudo`) eller via sudoers-reglen.
+- Ved nedlukning ventes der på igangværende sendinger (op til 45 s), og jobs der endnu ikke var sendt, lægges tilbage i køen i stedet for at blive markeret som fejl.
+
+Verificeret med en simuleret flåde-server: database fyldt af v6.1.1-koden → filerne skiftet ud uden genstart (siden og en ny ordre virker, programmet byte-identisk med v6.1.1) → genstart (migrering, ingen data ændret, ordrer stadig byte-identiske).
+
 ### Hastighed (penneløft)
 Hver streg koster et løft + prox-nedkørsel. Pr. maskine (under *Maskiner → Rediger*):
 
 | Niveau | Hvad der sker |
 |---|---|
-| **Fuld** (standard) | Streger der rører hinanden køres i ét stræk — også når den ene skal køres baglæns — og næste streg er den nærmeste. Samme streger graveres; typisk 20–50 % færre penneløft (fede/gotiske fonte mest). |
+| **Fuld** (standard for nye maskiner) | Streger der rører hinanden køres i ét stræk — også når den ene skal køres baglæns — og næste streg er den nærmeste. Samme streger graveres; typisk 20–50 % færre penneløft (fede/gotiske fonte mest). |
 | Let | Kun streger der fortsætter præcis hvor den forrige sluttede + fjerner overflødige punkter. Samme rækkefølge og retning som fonten. |
 | Ingen | Præcis som før v6.2. |
 

@@ -8,7 +8,7 @@ mange små linjestykker får maskinen til at bremse ned. Tre niveauer pr. maskin
           - to streger hvor den ene slutter præcis hvor den næste starter,
             køres uden at løfte (fræseren ville alligevel ned samme sted),
           - punkter der ligger på en lige linje (< 1 µm) og dubletter fjernes.
-  fuld    Standard. Som let, men streger der rører hinanden kædes sammen også
+  fuld    Standard for NYE maskiner (eksisterende får "ingen" ved opdateringen). Som let, men streger der rører hinanden kædes sammen også
           når den ene skal køres BAGLÆNS, og næste streg er den nærmeste. Præcis
           de samme streger graveres (fontene tegner i forvejen deres streger i
           tilfældige retninger) — typisk 20-50 % færre penneløft.

@@ -263,7 +263,7 @@ class Api(unittest.TestCase):
         self.assertEqual(row, (0, 0.0))
 
     def test_eksisterende_templates_beholder_ae_oe_aa(self):
-        """Migrering af en v6.1-database: gamle templates får dansk_tegn=0, maskiner 'fuld'."""
+        """Migrering af en v6.1-database: gamle templates får dansk_tegn=0, maskiner 'ingen'."""
         tmp = tempfile.mkdtemp()
         gl = os.path.join(tmp, 'v61.db')
         with sqlite3.connect(gl) as db:
@@ -281,7 +281,7 @@ class Api(unittest.TestCase):
             A.migrate_db()
             with sqlite3.connect(gl) as db:
                 self.assertEqual(db.execute("SELECT dansk_tegn FROM templates").fetchone()[0], 0)
-                self.assertEqual(db.execute("SELECT optimering FROM maskiner").fetchone()[0], 'fuld')
+                self.assertEqual(db.execute("SELECT optimering FROM maskiner").fetchone()[0], 'ingen')
                 self.assertEqual(db.execute("SELECT navn FROM templates").fetchone()[0], 'Gammel')
         finally:
             A.DB = gammel_db

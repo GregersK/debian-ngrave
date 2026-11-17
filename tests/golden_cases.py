@@ -43,6 +43,7 @@ def tmpl(font, **kw):
         'ekstra_font': font, 'ekstra_hoejde_mm': 3, 'ekstra_bogstav_afstand_mm': -0.2,
         'offset_x': 1.5, 'offset_y': -2.0, 'offset_z': 0.5,
         'spejl_y': False,
+        'kun_block': 0,          # templaten bruger de valgte skrifttyper (ikke v6.1-låsen)
         'felt_markering_dx': 0.0, 'felt_markering_dy': 0.0, 'felt_system_dx': 0.2,
         'felt_system_dy': -0.1, 'felt_loebe_dx': 0.0, 'felt_loebe_dy': 0.0,
         'felt_ekstra_dx': 0.0, 'felt_ekstra_dy': 0.3,

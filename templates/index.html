@@ -254,6 +254,13 @@
         <div><label title="Fræserens stregbredde på emnet — bruges i forhåndsvisningen">Fræser stregbredde (mm)</label><input id="t-fraeser" type="number" step="0.05" min="0.02" placeholder="ukendt" oninput="opdaterPreview()"></div>
         <div><label>Standard maskine</label><select id="t-maskine"><option value="">Valgfri</option></select></div>
       </div>
+      <div id="t-kunblock-boks" class="banner advarsel" style="display:none;margin-top:14px;">
+        <label style="display:flex;gap:8px;align-items:flex-start;margin:0;">
+          <input type="checkbox" id="t-kunblock" onchange="opdaterPreview()" style="margin-top:3px;">
+          <span><b>Gravér alt i Block (som i v6.1)</b><br>
+          <span class="small">Denne template har valgt en anden skrifttype, men i v6.1 blev alt alligevel graveret i Block. Den graverer derfor stadig i Block, så nøglerne ser ud som de plejer. Fjern fluebenet for at bruge de valgte skrifttyper — tjek forhåndsvisningen under <i>Felt-placering</i> først, for bredden ændrer sig.</span></span>
+        </label>
+      </div>
       <label class="chk-linje" style="display:flex;gap:8px;align-items:flex-start;margin-top:14px;">
         <input type="checkbox" id="t-dansk" checked onchange="opdaterPreview()" style="margin-top:3px;">
         <span><b>Ægte Æ Ø Å</b> i alle skrifttyper <span class="muted small">— slå fra for at gravere AE / OE / AA som templates fra før v6.2 gjorde (Block-fonten har altid ÆØÅ)</span></span>
@@ -536,13 +543,13 @@
       <div>
         <label>Hastighed (fræsevej)</label>
         <select id="m-optimering">
-          <option value="fuld">Fuld — færrest penneløft (standard)</option>
+          <option value="fuld">Fuld — færrest penneløft (standard for nye maskiner)</option>
           <option value="let">Let — samme rækkefølge og retning som fonten</option>
           <option value="ingen">Ingen — præcis som før v6.2</option>
         </select>
       </div>
     </div>
-    <p class="small muted" style="margin-top:8px;">Alle niveauer graverer de samme streger. «Fuld» kæder streger der rører hinanden sammen (også baglæns) og tager den nærmeste næste — typisk 20–50 % færre penneløft. Graverer en maskine anderledes end forventet, så vælg «Ingen».</p>
+    <p class="small muted" style="margin-top:8px;">Alle niveauer graverer de samme streger. «Fuld» kæder streger der rører hinanden sammen (også baglæns) og tager den nærmeste næste — typisk 20–50 % færre penneløft. Maskiner der fandtes før opdateringen til v6.2, står på «Ingen» og graverer præcis som før, indtil du vælger noget andet her — prøv «Fuld» på én maskine først.</p>
     <div class="mt gap">
       <button class="btn btn-primary" onclick="gemMaskine()">Gem</button>
       <button class="btn btn-secondary" onclick="document.getElementById('maskine-form').style.display='none'">Annuller</button>
@@ -626,8 +633,8 @@
 </main>
 
 <script src="/static/ui.js"></script>
-<script src="/static/ngrave_a.js"></script>
+<script src="/static/noegler.js"></script>
 <script src="/static/skilt.js"></script>
-<script src="/static/ngrave_b.js"></script>
+<script src="/static/system.js"></script>
 </body>
 </html>

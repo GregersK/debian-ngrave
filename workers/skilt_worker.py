@@ -9,7 +9,8 @@ Koordinater: skiltets origin er øverste venstre hjørne, X mod højre, Y NEDAD
 fra baseline (mod mindre y), og nedstrygere (g, j, y, script) rager under den.
 """
 import json
-from .font_manager import get_strokes, manglende_tegn
+from . import _samme_version  # noqa: F401  (skal stå FØR de andre workers-importer)
+from .font_manager import get_strokes, manglende_tegn, FontFejl
 from .optimering import optimer, statistik
 
 MM = 1 / 25.4
@@ -120,7 +121,12 @@ def layout_skilt(skilt):
         if afstand < -th or afstand > th * 3:
             lf.append(f"Ugyldig bogstavafstand ({afstand:g} mm)")
             afstand = 0.0
-        strokes, tw = get_strokes(tekst, th, font, afstand) if tekst.strip() else ([], 0.0)
+        try:
+            strokes, tw = get_strokes(tekst, th, font, afstand) if tekst.strip() else ([], 0.0)
+            ugyldige = manglende_tegn(tekst, font) if tekst.strip() else []
+        except FontFejl as e:
+            lf.append(str(e))
+            strokes, tw, ugyldige, tekst = [], 0.0, [], ''
 
         x_man, y_man = _num(linje.get('x_mm')), _num(linje.get('y_mm'))
         if x_man is not None:
@@ -154,7 +160,6 @@ def layout_skilt(skilt):
             if y1 > hoejde + EPS:
                 lf.append(f"rager {y1 - hoejde:.1f} mm ud under bunden")
         if tekst.strip():
-            ugyldige = manglende_tegn(tekst, font)
             if ugyldige:
                 la_.append("Tegn der springes over (findes ikke i skrifttypen): "
                            + " ".join(ugyldige))

@@ -84,6 +84,9 @@ CREATE TABLE IF NOT EXISTS templates (
     ekstra_position               INTEGER NOT NULL DEFAULT 4,
     -- 1 = ægte ÆØÅ i Hershey-fonte, 0 = AE/OE/AA som før v6.2 (eksisterende templates)
     dansk_tegn                    INTEGER NOT NULL DEFAULT 0,
+    -- 1 = gravér ALLE felter i Block uanset valgt skrifttype. Sættes ved opdatering
+    -- fra v6.1.x, hvor skrifttyperne ikke virkede og alt blev graveret i Block.
+    kun_block                     INTEGER NOT NULL DEFAULT 0,
     -- Materiale-profil (NULL = templatens egne feed/rpm/Z-værdier herover)
     materiale_id                  INTEGER,
     -- Løft mellem bogstaver på samme nøgle (NULL = samme som z_op_mm, som før v6.2)
