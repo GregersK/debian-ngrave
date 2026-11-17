@@ -1,11 +1,25 @@
-"""Skilt Worker - Genererer G-code til skiltegravering"""
+"""Skilt Worker - layout, validering og G-code til skiltegravering.
+
+Alt layout sker i `layout_skilt()`, som bruges af BÅDE gravering (`byg_skilt`)
+og forhåndsvisningen i GUI'en (`/api/skilt/preview`). Så det man ser er det der
+graveres, og validering (bounds) bruger de faktiske streger — ikke et gæt.
+
+Koordinater: skiltets origin er øverste venstre hjørne, X mod højre, Y NEDAD
+(mm). En linjes `y` er dens baseline (bunden af versaler); glyffer rager opad
+fra baseline (mod mindre y), og nedstrygere (g, j, y, script) rager under den.
+"""
 import json
 from .font_manager import get_strokes
 
 MM = 1 / 25.4
+EPS = 0.05            # mm tolerance ved bounds-check
+MAX_LINJER = 10
+MAX_TEKST = 200       # tegn pr. linje
+
 
 def xi(v): return round(v * MM, 4)
 def yi(v): return round(-v * MM, 4)
+
 
 def streger_til_gcode(strokes, x_offset, y, feed, feed_z, z_up, prox_offset):
     lines = []
@@ -31,89 +45,171 @@ def streger_til_gcode(strokes, x_offset, y, feed, feed_z, z_up, prox_offset):
         lines.append(f"G90")
     return lines
 
-def byg_skilt(skilt):
-    bredde  = skilt['skilt_bredde_mm']
-    hoejde  = skilt['skilt_hoejde_mm']
-    linjer  = json.loads(skilt['linjer_json'])
-    feed    = int(skilt.get('feed_xy')      or 12)
-    feed_z  = int(skilt.get('feed_z')       or 40)
-    rpm     = int(skilt.get('spindle_rpm')  or 16000)
-    z_up    = float(skilt.get('z_op_mm')        or 5.0)
-    prox    = float(skilt.get('prox_offset_mm') or 1.5)
 
-    # Spacing parametre
-    margin_top    = float(skilt.get('margin_top_mm')    or hoejde * 0.1)
-    margin_bottom = float(skilt.get('margin_bottom_mm') or hoejde * 0.1)
-    linje_afstand = skilt.get('linje_afstand_mm')  # None = auto
+def _num(v, default=None):
+    try:
+        if v is None or v == '':
+            return default
+        return float(v)
+    except (TypeError, ValueError):
+        return default
 
-    antal = len(linjer)
-    if antal == 0:
-        return ""
 
-    # Beregn Y-positioner
-    tilg = hoejde - margin_top - margin_bottom
+def _ugyldige_tegn(tekst, th, font):
+    """Tegn (ikke mellemrum) som skrifttypen ikke kan gravere."""
+    out = []
+    for ch in dict.fromkeys(tekst):  # unikke, bevarer rækkefølge
+        if ch.isspace():
+            continue
+        s, _ = get_strokes(ch, th, font)
+        if not s:
+            out.append(ch)
+    return out
 
-    if antal == 1:
-        y_positions = [margin_top + tilg / 2]
-    elif linje_afstand is not None:
-        # Manuel afstand
-        la = float(linje_afstand)
-        y_positions = [margin_top + i * la for i in range(antal)]
-    else:
-        # Auto: fordel jævnt
-        spacing = tilg / (antal - 1)
-        y_positions = [margin_top + i * spacing for i in range(antal)]
 
-    # ── Beregn og VALIDÉR alle linjer FØR vi udsender bevægelses-G-code ──────
-    # Sikkerhed: hvis en linje ikke passer inden for skiltets bredde/højde,
-    # ville maskinen ellers gravere ud over kanten — ind i emne-holder/bord.
-    # Vi bygger derfor hele skiltet i hukommelsen, tjekker at alt er inden for
-    # skiltets areal, og kaster en fejl (job -> 'fejl') før spindlen tændes.
-    EPS = 0.05  # mm tolerance
-    beregnet = []   # (strokes, x_start, y_pos)
-    fejl = []
+def layout_skilt(skilt):
+    """Beregner placering af alle linjer og validerer at alt er inden for skiltet.
+
+    `skilt` er en dict med skilt_bredde_mm, skilt_hoejde_mm, linjer_json (str el.
+    liste) og valgfrit margin_top_mm, margin_bottom_mm, linje_afstand_mm.
+    Returnerer en dict med `ok`, `fejl`, `advarsler` og pr. linje `paths` (i
+    skilt-koordinater, klar til SVG) samt de interne `strokes` til G-code.
+    """
+    bredde = float(skilt['skilt_bredde_mm'])
+    hoejde = float(skilt['skilt_hoejde_mm'])
+    linjer = skilt['linjer_json']
+    if isinstance(linjer, str):
+        linjer = json.loads(linjer)
+
+    fejl, advarsler = [], []
+    if bredde <= 0 or hoejde <= 0:
+        fejl.append("Skiltets bredde og højde skal være større end 0")
+    if len(linjer) > MAX_LINJER:
+        fejl.append(f"Max {MAX_LINJER} linjer pr. skilt")
+        linjer = linjer[:MAX_LINJER]
+
+    margin_top = _num(skilt.get('margin_top_mm'))
+    margin_bot = _num(skilt.get('margin_bottom_mm'))
+    if margin_top is None: margin_top = hoejde * 0.1
+    if margin_bot is None: margin_bot = hoejde * 0.1
+    la = _num(skilt.get('linje_afstand_mm'))      # None = fordel jævnt
+
+    # Tekst-højder (bruges til automatisk lodret placering)
+    ths = [(_num(l.get('hoejde_mm'), 10.0) or 10.0) for l in linjer]
+    n = len(linjer)
+
+    # Automatisk baseline-placering. Margen = afstand fra skiltets kant til
+    # TEKSTEN (øverste linjes versalhøjde / nederste linjes baseline).
+    y_auto = []
+    if n:
+        foerste = margin_top + ths[0]
+        sidste = hoejde - margin_bot
+        if n == 1:
+            tilg = hoejde - margin_top - margin_bot
+            y_auto = [margin_top + (tilg + ths[0]) / 2]   # centreret
+        elif la is not None:
+            y_auto = [foerste + i * la for i in range(n)]
+        else:
+            step = (sidste - foerste) / (n - 1)
+            y_auto = [foerste + i * step for i in range(n)]
+
+    out = []
     for i, linje in enumerate(linjer):
-        tekst     = linje.get('tekst', '')
-        justering = linje.get('justering', 'venstre')
-        th        = float(linje.get('hoejde_mm', 10.0) or 10.0)
-        font      = linje.get('font', 'block') or 'block'
+        tekst = str(linje.get('tekst', '') or '')
+        justering = linje.get('justering', 'venstre') or 'venstre'
+        th = ths[i]
+        font = linje.get('font', 'block') or 'block'
+        lf, la_ = [], []   # linje-fejl / -advarsler
+        if len(tekst) > MAX_TEKST:
+            lf.append(f"Teksten er for lang (max {MAX_TEKST} tegn)")
+            tekst = tekst[:MAX_TEKST]
+        if th <= 0 or th > max(bredde, hoejde) * 2:
+            lf.append(f"Ugyldig teksthøjde ({th:g} mm)")
+            th = 10.0
 
-        strokes, tw = get_strokes(tekst, th, font)
+        strokes, tw = get_strokes(tekst, th, font) if tekst.strip() else ([], 0.0)
 
-        # Manuel X overskriver justering
-        if linje.get('x_mm') is not None:
-            x_start = float(linje['x_mm'])
+        x_man, y_man = _num(linje.get('x_mm')), _num(linje.get('y_mm'))
+        if x_man is not None:
+            x_start = x_man
         elif justering == 'center':
             x_start = (bredde - tw) / 2
         elif justering == 'hoejre':
             x_start = bredde - tw - bredde * 0.05
         else:
             x_start = bredde * 0.05
+        y_pos = y_man if y_man is not None else (y_auto[i] if i < len(y_auto) else 0.0)
 
-        # Manuel Y overskriver auto-fordeling
-        y_pos = float(linje['y_mm']) if linje.get('y_mm') is not None else y_positions[i]
+        paths, bbox = [], None
+        for s in strokes:
+            if not s:
+                continue
+            p = [[round(x_start + sx, 2), round(y_pos - sy, 2)] for (sx, sy) in s]
+            paths.append(p)
+        if paths:
+            xs = [pt[0] for p in paths for pt in p]
+            ys = [pt[1] for p in paths for pt in p]
+            bbox = [min(xs), min(ys), max(xs), max(ys)]
+            x0, y0, x1, y1 = bbox
+            if x0 < -EPS:
+                lf.append(f"rager {-x0:.1f} mm ud over venstre kant")
+            if x1 > bredde + EPS:
+                lf.append(f"rager {x1 - bredde:.1f} mm ud over højre kant "
+                          f"(teksten er {tw:.0f} mm bred, skiltet {bredde:g} mm)")
+            if y0 < -EPS:
+                lf.append(f"rager {-y0:.1f} mm ud over toppen")
+            if y1 > hoejde + EPS:
+                lf.append(f"rager {y1 - hoejde:.1f} mm ud under bunden")
+        if tekst.strip():
+            ugyldige = _ugyldige_tegn(tekst, th, font)
+            if ugyldige:
+                la_.append("Tegn der springes over (findes ikke i skrifttypen): "
+                           + " ".join(ugyldige))
+            if not paths:
+                lf.append("Ingen tegn kan graveres i denne skrifttype")
 
-        # Bounds-check (spring tomme linjer over)
-        if strokes:
-            if x_start < -EPS:
-                fejl.append(f"Linje {i+1} starter uden for venstre kant (x={x_start:.1f}mm)")
-            if x_start + tw > bredde + EPS:
-                fejl.append(f"Linje {i+1} er for bred: teksten fylder {tw:.1f}mm men skiltet er {bredde:.0f}mm "
-                            f"(rager {x_start + tw - bredde:.1f}mm ud over højre kant)")
-            if y_pos < -EPS or y_pos > hoejde + EPS:
-                fejl.append(f"Linje {i+1} er placeret uden for skiltets højde ({hoejde:.0f}mm)")
+        out.append({
+            'i': i, 'tekst': tekst, 'font': font, 'hoejde_mm': th,
+            'justering': justering, 'x': round(x_start, 2), 'y': round(y_pos, 2),
+            'bredde_mm': round(tw, 2), 'paths': paths, 'bbox': bbox,
+            'fejl': lf, 'advarsler': la_, 'strokes': strokes,
+        })
 
-        beregnet.append((strokes, x_start, y_pos))
+    # Overlap mellem linjer (kun advarsel — kan være tilsigtet)
+    synlige = [l for l in out if l['bbox']]
+    for a, b in zip(synlige, synlige[1:]):
+        if a['bbox'][3] > b['bbox'][1] + EPS and a['bbox'][0] < b['bbox'][2] and b['bbox'][0] < a['bbox'][2]:
+            advarsler.append(f"Linje {a['i']+1} og {b['i']+1} overlapper hinanden")
 
-    if fejl:
-        raise ValueError("Skiltet kan ikke graveres — teksten passer ikke: " + "; ".join(fejl))
+    for l in out:
+        for m in l['fejl']:
+            fejl.append(f"Linje {l['i']+1}: {m}")
+        for m in l['advarsler']:
+            advarsler.append(f"Linje {l['i']+1}: {m}")
 
-    # ── Alt valideret → udsend G-code ───────────────────────────────────────
-    lines = ["M24","G28 Z0","G20","G90",f"M3 S{rpm}"]
-    for strokes, x_start, y_pos in beregnet:
-        if not strokes:
+    return {'ok': not fejl, 'bredde': bredde, 'hoejde': hoejde,
+            'fejl': fejl, 'advarsler': advarsler, 'linjer': out}
+
+
+def byg_skilt(skilt):
+    """Bygger G-code. Kaster ValueError (→ job 'fejl') FØR spindlen tændes hvis
+    noget ikke passer inden for skiltet."""
+    feed   = int(_num(skilt.get('feed_xy'), 0)     or 12)
+    feed_z = int(_num(skilt.get('feed_z'), 0)      or 40)
+    rpm    = int(_num(skilt.get('spindle_rpm'), 0) or 16000)
+    z_up   = float(_num(skilt.get('z_op_mm'), 0)        or 5.0)
+    prox   = float(_num(skilt.get('prox_offset_mm'), 0) or 1.5)
+
+    lay = layout_skilt(skilt)
+    if not lay['linjer']:
+        return ""
+    if not lay['ok']:
+        raise ValueError("Skiltet kan ikke graveres — " + "; ".join(lay['fejl']))
+
+    lines = ["M24", "G28 Z0", "G20", "G90", f"M3 S{rpm}"]
+    for l in lay['linjer']:
+        if not l['strokes']:
             continue
-        lines += streger_til_gcode(strokes, x_start, y_pos, feed, feed_z, z_up, prox)
-
-    lines += ["G4 P0","M5","M9","M11","M246","G28 Z0","G0 X0 Y0","M30"]
+        lines += streger_til_gcode(l['strokes'], l['x'], l['y'], feed, feed_z, z_up, prox)
+    lines += ["G4 P0", "M5", "M9", "M11", "M246", "G28 Z0", "G0 X0 Y0", "M30"]
     return "\n".join(lines) + "\n"

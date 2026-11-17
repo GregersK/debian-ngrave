@@ -1,96 +1,8 @@
 // ─── State ────────────────────────────────────────────────────────────────────
 let maskiner = [], templates = [], skiltTemplates = [], fonts = {};
 let redigerTemplateId = null, redigerSkiltTemplateId = null;
-let skiltLinjer = [];
 let gridSlots = [];
 let currentTab = 't-basis';
-
-// HTML-escape af bruger-leverede strenge før de indsættes via innerHTML.
-// Beskytter mod stored XSS via maskine-/template-navne mv.
-function esc(s) {
-  if (s == null) return '';
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-// ─── Theme ────────────────────────────────────────────────────────────────────
-function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme') || 'dark';
-  const next = current === 'dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', next);
-  localStorage.setItem('theme', next);
-}
-
-// Load saved theme
-const savedTheme = localStorage.getItem('theme') || 'dark';
-document.documentElement.setAttribute('data-theme', savedTheme);
-
-// ─── Navigation ───────────────────────────────────────────────────────────────
-function skift(panel) {
-  document.querySelectorAll('.panel').forEach(p => p.classList.remove('aktiv'));
-  document.querySelectorAll('nav button').forEach(b => b.classList.remove('aktiv'));
-  document.getElementById('panel-' + panel).classList.add('aktiv');
-  event.target.classList.add('aktiv');
-  if (panel === 'jobkoe')  { hentBatches(); _startAutoRefresh(); }
-  else                     { _stopAutoRefresh(); }
-  if (panel === 'skilte')           { initSkilt(); }
-  if (panel === 'templates')        hentTemplates();
-  if (panel === 'skilt-templates')  hentSkiltTemplates();
-  if (panel === 'maskiner')         hentMaskiner();
-}
-
-// Åbn jobkøen direkte på den rigtige produktion (nøgler eller skilte),
-// så de to produktioner har hver deres kø-indgang i menuen.
-function visKoe(which) {
-  document.querySelectorAll('.panel').forEach(p => p.classList.remove('aktiv'));
-  document.querySelectorAll('nav button').forEach(b => b.classList.remove('aktiv'));
-  document.getElementById('panel-jobkoe').classList.add('aktiv');
-  if (typeof event !== 'undefined' && event && event.target) event.target.classList.add('aktiv');
-  _startAutoRefresh();
-  // Aktivér den rigtige interne fane (uafhængigt af event.target)
-  const btns = document.querySelectorAll('#panel-jobkoe .tab-btn');
-  document.querySelectorAll('#panel-jobkoe .tab-content').forEach(c => c.classList.remove('aktiv'));
-  btns.forEach(b => b.classList.remove('aktiv'));
-  const idx = which === 'skilte' ? 1 : 0;
-  if (btns[idx]) btns[idx].classList.add('aktiv');
-  document.getElementById('jobkoe-' + which).classList.add('aktiv');
-  if (which === 'skilte') hentSkilteKoe(); else hentBatches();
-}
-
-function skiftTab(tab) {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('aktiv'));
-  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('aktiv'));
-  event.target.classList.add('aktiv');
-  document.getElementById('tab-' + tab).classList.add('aktiv');
-  currentTab = tab;
-  if (tab === 't-felt') setTimeout(opdaterPreview, 50);
-}
-
-// ─── API ──────────────────────────────────────────────────────────────────────
-async function api(url, method='GET', data=null) {
-  const opts = { method, headers: {'Content-Type':'application/json'} };
-  if (data) opts.body = JSON.stringify(data);
-  const r = await fetch(url, opts);
-  if (r.status === 401) {
-    // Browser håndterer Basic Auth-prompt automatisk via WWW-Authenticate.
-    // Hvis vi alligevel havner her, så viser vi en besked.
-    alert('Login påkrævet — opdater siden hvis du ikke har set en login-prompt');
-    throw new Error('Auth påkrævet');
-  }
-  return r.json();
-}
-
-// ─── Status bar ───────────────────────────────────────────────────────────────
-async function opdaterStatus() {
-  const s = await api('/api/status');
-  document.getElementById('status-bar').textContent = `Jobkø: ${s.pending} pending / ${s.running} kører`;
-}
-setInterval(opdaterStatus, 3000);
-opdaterStatus();
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function initDropdowns() {
@@ -101,18 +13,24 @@ async function initDropdowns() {
 
   const jtempl = document.getElementById('job-template');
   jtempl.innerHTML = templates.map(t => `<option value="${t.id}" data-maskine="${t.maskine_id||''}">${esc(t.navn)}</option>`).join('');
-  // Husk sidst brugte template
-  const sidst = localStorage.getItem('sidst_template');
+  // Husk sidst brugte template og maskine
+  const sidst = lsGet('sidst_template');
   if (sidst && jtempl.querySelector(`option[value="${sidst}"]`)) {
     jtempl.value = sidst;
   }
 
   const jmask = document.getElementById('job-maskine');
   jmask.innerHTML = maskiner.map(m => `<option value="${m.id}">${esc(m.navn)} (${esc(m.model)})</option>`).join('');
-  opdaterTemplateMaskine();
+  const sm = lsGet('sidst_maskine');
+  if (sm && jmask.querySelector(`option[value="${sm}"]`)) jmask.value = sm;
+  opdaterTemplateMaskine();   // template's standardmaskine har forrang
 
   const smask = document.getElementById('skilt-maskine');
-  smask.innerHTML = maskiner.map(m => `<option value="${m.id}">${esc(m.navn)}</option>`).join('');
+  const forrigeSkiltMaskine = smask.value || lsGet('sidst_skilt_maskine');
+  // Skilte graveres som G-code → kun S5-maskiner kan bruges (CIPHER/S3 forstår ikke programmet)
+  smask.innerHTML = maskiner.filter(m => m.protokol === 'gcode').map(m => `<option value="${m.id}">${esc(m.navn)}</option>`).join('');
+  if (forrigeSkiltMaskine && smask.querySelector(`option[value="${forrigeSkiltMaskine}"]`)) smask.value = forrigeSkiltMaskine;
+  opdaterMaskineAdvarsler();
 
   const stvalg = document.getElementById('skilt-template-valg');
   stvalg.innerHTML = '<option value="">Vælg template...</option>' +
@@ -134,442 +52,276 @@ async function initDropdowns() {
   });
 }
 
+// ─── Nyt nøgle-job ────────────────────────────────────────────────────────────
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+
 function opdaterTemplateMaskine() {
-  const sel = document.getElementById('job-template');
+  const sel = $('job-template');
   const opt = sel.options[sel.selectedIndex];
   const mid = opt ? opt.dataset.maskine : '';
-  if (mid) document.getElementById('job-maskine').value = mid;
+  if (mid) $('job-maskine').value = mid;
+  return !!mid;
 }
 
 function opdaterJobFelter() {
   opdaterTemplateMaskine();
-  const sel = document.getElementById('job-template');
-  const tid = +sel.value;
-  const tmpl = templates.find(t => t.id == tid);
-  const container = document.getElementById('job-felter-container');
-  if (!tmpl) { container.innerHTML = ''; return; }
+  const tmpl = templates.find(t => t.id == +$('job-template').value);
+  const container = $('job-felter-container');
+  if (!tmpl) { container.innerHTML = ''; opdaterPladeVisning(); return; }
 
-  // Sorter felterne efter position sat i template
+  // Alt der stammer fra databasen (felt-navne) escapes — templates kan have vilkårlige navne.
+  const felt = (navn, def, id, extra = '') =>
+    `<div><label for="${id}">${esc(navn || def)}</label><input id="${id}" autocomplete="off" ${extra}></div>`;
   const feltDefs = [
-    { pos: tmpl.markering_position||1, render: () => tmpl.markering_aktiv ? `<div><label>${tmpl.markering_navn||'Markering'}</label><input id="job-type" placeholder=""></div>` : '' },
-    { pos: tmpl.system_position||2,    render: () => tmpl.system_aktiv    ? `<div><label>${tmpl.system_navn||'System nr'}</label><input id="job-system" placeholder=""></div>` : '' },
-    { pos: tmpl.ekstra_position||4,    render: () => tmpl.ekstra_aktiv    ? `<div><label>${tmpl.ekstra_navn||'Ekstra'}</label><input id="job-ekstra" placeholder=""></div>` : '' },
-    { pos: tmpl.loebe_position||3, render: () => {
-      if (!tmpl.loebe_aktiv) return `<div><label>Antal emner</label><input id="job-antal" type="number" value="1" min="1"></div>`;
-      let h = `<div><label>${tmpl.loebe_navn||'Løbenr'} fra</label><input id="job-fra" type="number" value="1" min="1"></div>`;
-      h    += `<div><label>${tmpl.loebe_navn||'Løbenr'} til</label><input id="job-til" type="number" value="20" min="1"></div>`;
-      if (tmpl.loebe_prefix_aktiv) h += `<div><label>Prefix</label><input id="job-prefix" placeholder="f.eks. S" style="width:80px;"></div>`;
-      if (tmpl.loebe_suffix_aktiv) h += `<div><label>Suffix</label><input id="job-suffix" placeholder="" style="width:80px;"></div>`;
+    { pos: tmpl.markering_position || 1, render: () => tmpl.markering_aktiv ? felt(tmpl.markering_navn, 'Markering', 'job-type') : '' },
+    { pos: tmpl.system_position || 2,    render: () => tmpl.system_aktiv    ? felt(tmpl.system_navn, 'System nr', 'job-system') : '' },
+    { pos: tmpl.ekstra_position || 4,    render: () => tmpl.ekstra_aktiv    ? felt(tmpl.ekstra_navn, 'Ekstra', 'job-ekstra') : '' },
+    { pos: tmpl.loebe_position || 3, render: () => {
+      if (!tmpl.loebe_aktiv) return `<div><label for="job-antal">Antal emner</label><input id="job-antal" type="number" inputmode="numeric" value="1" min="1" oninput="opdaterPladeVisning()"></div>`;
+      const ln = esc(tmpl.loebe_navn || 'Løbenr');
+      let h = `<div><label for="job-fra">${ln} fra</label><input id="job-fra" type="number" inputmode="numeric" value="1" min="1" oninput="opdaterPladeVisning()"></div>`;
+      h    += `<div><label for="job-til">${ln} til</label><input id="job-til" type="number" inputmode="numeric" value="20" min="1" oninput="opdaterPladeVisning()"></div>`;
+      if (tmpl.loebe_prefix_aktiv) h += `<div><label for="job-prefix">Prefix</label><input id="job-prefix" placeholder="f.eks. S"></div>`;
+      if (tmpl.loebe_suffix_aktiv) h += `<div><label for="job-suffix">Suffix</label><input id="job-suffix"></div>`;
       return h;
     }},
   ].sort((a, b) => a.pos - b.pos);
 
   container.innerHTML = feltDefs.map(f => f.render()).join('');
+  opdaterPladeVisning();
 }
 
-// ─── Nyt job ──────────────────────────────────────────────────────────────────
+// Fordeling på plader — samme regneregel som serveren (create_batch).
+function pladeFordeling(antal, start, N) {
+  const foerste = N - start + 1;
+  if (foerste <= 0 || antal <= 0) return [];
+  if (antal <= foerste) return [antal];
+  const res = [foerste];
+  let rest = antal - foerste;
+  while (rest > 0) { res.push(Math.min(N, rest)); rest -= N; }
+  return res;
+}
+
+function jobTal() {
+  const tmpl = templates.find(t => t.id == +$('job-template').value);
+  if (!tmpl) return null;
+  const num = (id, d) => { const el = $(id); return el && el.value !== '' ? Math.floor(+el.value) : d; };
+  const antal = tmpl.loebe_aktiv ? num('job-til', 1) - num('job-fra', 1) + 1 : num('job-antal', 1);
+  return { tmpl, antal, start: Math.max(1, num('job-startslot', 1)) };
+}
+
+function opdaterPladeVisning() {
+  const wrap = $('plade-wrap'), svg = $('plade-svg'), op = $('job-opsummering'), knap = $('job-send');
+  if (!wrap) return;
+  const t = jobTal();
+  let slots = [];
+  try { slots = t ? (JSON.parse(t.tmpl.grid_json).slots || []) : []; } catch (e) {}
+  if (!t || !slots.length) { wrap.style.display = 'none'; if (knap) knap.disabled = !t; return; }
+  wrap.style.display = 'block';
+
+  const N = slots.length, zw = +t.tmpl.zone_bredde_mm || 18, zh = +t.tmpl.zone_hoejde_mm || 8;
+  const plader = pladeFordeling(t.antal, t.start, N);
+  let fejl = '';
+  if (!(t.antal > 0)) fejl = 'Slutnummeret skal være større end eller lig med startnummeret.';
+  else if (t.start > N) fejl = `Start slot ${t.start} findes ikke — pladen har ${N} slots.`;
+  knap.disabled = !!fejl;
+
+  const brugt = fejl ? 0 : plader[0];
+  // Skematisk plade: slots sidder på deres rigtige positioner, men tegnes som læsbare felter
+  // (de fysiske graveringszoner er ca. 18×8 mm og ville blive frimærker).
+  const xs = slots.map(s => +s.x), ys = slots.map(s => +s.y);
+  const trin = (arr) => { const u = [...new Set(arr.map(v => Math.round(v * 10) / 10))].sort((p, q) => p - q); return u.length > 1 ? Math.min(...u.slice(1).map((v, i) => v - u[i])) : null; };
+  const tw = Math.max(zw, (trin(xs) || zw * 2) * 0.8), th = Math.max(zh, (trin(ys) || zh * 2) * 0.72);
+  const cx = (s) => +s.x + zw / 2, cy = (s) => +s.y + zh / 2;
+  const x0 = Math.min(...slots.map(cx)) - tw / 2 - 3, y0 = Math.min(...slots.map(cy)) - th / 2 - 3;
+  const bw = Math.max(...slots.map(cx)) + tw / 2 + 3 - x0, bh = Math.max(...slots.map(cy)) + th / 2 + 3 - y0;
+  svg.setAttribute('viewBox', `${x0} ${y0} ${bw} ${bh}`);
+  const fs = th * 0.42;
+  svg.innerHTML = slots.map((s, i) => {
+    const bruger = i >= t.start - 1 && i < t.start - 1 + brugt;
+    return `<rect class="slot ${bruger ? 'brug' : ''}" x="${cx(s) - tw / 2}" y="${cy(s) - th / 2}" width="${tw}" height="${th}" rx="${th * 0.14}"/>` +
+      `<text class="slot-nr" x="${cx(s)}" y="${cy(s)}" font-size="${fs}" style="${bruger ? 'fill:#fff;font-weight:700' : ''}">${esc(s.nr ?? i + 1)}</text>`;
+  }).join('');
+
+  op.innerHTML = fejl
+    ? `<span style="color:var(--fejl)">${esc(fejl)}</span>`
+    : `<b>${t.antal}</b> ${t.antal === 1 ? 'nøgle' : 'nøgler'} → <b>${plader.length}</b> ${plader.length === 1 ? 'plade' : 'plader'} (${plader.join(' + ')})` +
+      (plader.length > 1 ? ` <span class="muted">· plade 2 og frem venter på hold, til du frigiver dem</span>` : '');
+}
+
 async function sendJob() {
-  const status = document.getElementById('job-status');
-  status.textContent = 'Sender...';
+  const status = $('job-status');
+  const t = jobTal();
+  if (!t) { toast('Vælg en template først', 'advarsel'); return; }
+  if (t.antal > 200 && !confirm(`Du er ved at oprette ${t.antal} nøgler. Er det rigtigt?`)) return;
+  status.textContent = 'Sender…';
+  const getVal = (id) => { const el = $(id); return el ? el.value.trim() : ''; };
+  const getNum = (id, def) => { const el = $(id); return el && el.value !== '' ? +el.value : def; };
+  try {
+    const res = await api('/api/batches', 'POST', {
+      template_id: $('job-template').value,
+      maskine_id:  $('job-maskine').value,
+      type_felt:   getVal('job-type').toUpperCase(),
+      system_nr:   getVal('job-system').toUpperCase(),
+      ekstra_tekst: getVal('job-ekstra').toUpperCase(),
+      loebe_fra:    getNum('job-fra', 1),
+      loebe_til:    getNum('job-til', 1),
+      loebe_prefix: getVal('job-prefix'),
+      loebe_suffix: getVal('job-suffix'),
+      antal:        getNum('job-antal', 1),
+      navn:        getVal('job-navn') || null,
+      start_slot:  getNum('job-startslot', 1) || 1,
+    });
+    if (res.ok) {
+      status.textContent = '';
+      toast(`${res.jobs} nøgler lagt i køen (${res.batches} ${res.batches === 1 ? 'plade' : 'plader'})`, 'ok',
+            { tekst: 'Se kø', fn: () => gaaTil('koe-noegler') });
+    } else {
+      status.textContent = '';
+      toast(res.fejl || 'Kunne ikke oprette jobbet', 'fejl');
+    }
+  } catch (e) { status.textContent = ''; toast('Kunne ikke sende — ingen forbindelse?', 'fejl'); }
+}
 
-  const getVal = (id) => {
-    const el = document.getElementById(id);
-    return el ? el.value.trim() : '';
-  };
-  const getNum = (id, def) => {
-    const el = document.getElementById(id);
-    return el && el.value !== '' ? +el.value : def;
-  };
-
-  const res = await api('/api/batches', 'POST', {
-    template_id: document.getElementById('job-template').value,
-    maskine_id:  document.getElementById('job-maskine').value,
-    type_felt:   getVal('job-type').toUpperCase(),
-    system_nr:   getVal('job-system').toUpperCase(),
-    ekstra_tekst: getVal('job-ekstra').toUpperCase(),
-    loebe_fra:    getNum('job-fra', 1),
-    loebe_til:    getNum('job-til', 1),
-    loebe_prefix: getVal('job-prefix'),
-    loebe_suffix: getVal('job-suffix'),
-    antal:        getNum('job-antal', 1),
-    navn:        getVal('job-navn') || null,
-    start_slot:  getNum('job-startslot', 1) || 1,
-  });
-  if (res.ok) {
-    status.textContent = `✓ ${res.jobs} jobs fordelt på ${res.batches} plader (${res.plade_size} slots/plade)`;
-    status.style.color = '#27ae60';
-  } else {
-    status.textContent = `✗ Fejl: ${res.fejl}`;
-    status.style.color = 'var(--accent)';
+// ─── Jobkøer ──────────────────────────────────────────────────────────────────
+const STATUS_TEKST = { pending: 'Afventer', running: 'Sender…', done: 'Sendt', fejl: 'Fejl', 'on-hold': 'Venter på plade' };
+function statusBadge(st, fejl, kode) {
+  const tip = st === 'done' ? 'Programmet er sendt til maskinen' : (st === 'on-hold' ? 'Frigiv når pladen er skiftet' : '');
+  let ekstra = '';
+  if (fejl) {
+    if (st === 'fejl') {
+      ekstra = `<div class="fejltekst">${esc(fejl)}</div>`;
+      if (kode === 'forbindelse') ekstra += '<div class="notetekst">Intet blev sendt — sikkert at prøve igen.</div>';
+    } else {
+      ekstra = `<div class="notetekst">${esc(fejl)}</div>`;   // fx »Prøver igen om 5 s (forsøg 2 af 3)«
+    }
   }
+  return `<span class="badge badge-${esc(st)}" title="${esc(tip)}">${esc(STATUS_TEKST[st] || st)}</span>` + ekstra;
 }
+// Viser/skjuler »Prøv igen«-knappen når der er jobs der fejlede fordi maskinen ikke kunne nås
+function visGentagForbindelse(rows, knapId) {
+  const n = rows.filter(r => r.status === 'fejl' && r.fejl_kode === 'forbindelse').length;
+  const b = $(knapId);
+  if (!b) return;
+  b.style.display = n ? '' : 'none';
+  b.textContent = `↻ Prøv ${n} ${n === 1 ? 'job' : 'jobs'} igen (maskinen kunne ikke nås)`;
+}
+async function gentagForbindelsesfejl() {
+  const r = await api('/api/jobkoe/gentag-fejlede', 'POST', {});
+  if (r.ok) toast(`${r.noegler + r.skilte} ${r.noegler + r.skilte === 1 ? 'job' : 'jobs'} sat tilbage i køen`, 'ok');
+  else toast(r.fejl || 'Kunne ikke sætte jobs tilbage', 'fejl');
+  hentBatches(); hentSkilteKoe();
+}
+function koeOpdateret() { const el = $('koe-opdateret'); if (el) el.textContent = 'opdateret ' + new Date().toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
 
-// ─── Jobkø ────────────────────────────────────────────────────────────────────
-function skiftJobkoTab(tab) {
-  document.querySelectorAll('#panel-jobkoe .tab-btn').forEach(b => b.classList.remove('aktiv'));
-  document.querySelectorAll('#panel-jobkoe .tab-content').forEach(c => c.classList.remove('aktiv'));
-  event.target.classList.add('aktiv');
-  document.getElementById('jobkoe-' + tab).classList.add('aktiv');
-  if (tab === 'noegler') hentBatches();
-  if (tab === 'skilte') hentSkilteKoe();
-}
+let skilteKoeRows = [];
 
 async function hentSkilteKoe() {
-  const rows = await api('/api/skilte');
-  document.getElementById('skilte-koe-tabel').innerHTML = rows.map(r => {
-    const linjer = JSON.parse(r.linjer_json);
-    return `<tr>
-      <td>#${r.id}</td><td>${esc(r.navn)}</td><td>${esc(r.template_navn) || '—'}</td>
-      <td>${r.skilt_bredde_mm}×${r.skilt_hoejde_mm} mm</td><td>${linjer.length} linjer</td>
-      <td>${esc(r.maskine_navn)}</td><td><span class="badge badge-${esc(r.status)}">${esc(r.status)}</span>${r.status==='fejl'&&r.fejl_besked?`<div style="color:var(--accent);font-size:0.7rem;margin-top:3px;max-width:220px;">${esc(r.fejl_besked)}</div>`:''}</td>
-      <td>${r.status==='pending'?`<button class="btn btn-danger" onclick="annullerSkilt(${r.id})" style="padding:4px 10px;font-size:0.8rem">Annuller</button>`:''}</td>
-    </tr>`;
-  }).join('');
-}
-
-let _refreshTimer = null;
-
-function _startAutoRefresh() {
-  _stopAutoRefresh();
-  _refreshTimer = setInterval(() => {
-    if (!document.getElementById('panel-jobkoe').classList.contains('aktiv')) return;
-    // Opdater kun den fane brugeren rent faktisk kigger på
-    const skilteAktiv = document.getElementById('jobkoe-skilte').classList.contains('aktiv');
-    if (skilteAktiv) hentSkilteKoe(); else hentBatches();
-  }, 15000);
-}
-function _stopAutoRefresh() {
-  if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+  const tbody = $('skilte-koe-tabel');
+  try {
+    const rows = await api('/api/skilte');
+    skilteKoeRows = rows;
+    visGentagForbindelse(rows, 'gentag-forb-skilte');
+    tbody.innerHTML = rows.length === 0
+      ? `<tr><td colspan="7" class="tomt"><span class="stor">🏷️</span>Ingen skilte i køen.<br><button class="btn btn-secondary btn-sm mt" onclick="gaaTil('skilte')">Lav et nyt skilt</button></td></tr>`
+      : rows.map(r => {
+          let tekst = '';
+          try { tekst = JSON.parse(r.linjer_json).map(l => l.tekst).filter(Boolean).join(' / '); } catch (e) {}
+          return `<tr>
+            <td class="m-skjul" data-label="ID">#${r.id}</td>
+            <td data-label="Tekst"><b>${esc(tekst || r.navn)}</b></td>
+            <td class="m-skjul" data-label="Størrelse">${r.skilt_bredde_mm}×${r.skilt_hoejde_mm} mm</td>
+            <td data-label="Maskine">${esc(r.maskine_navn)}</td>
+            <td data-label="Status">${statusBadge(r.status, r.fejl_besked, r.fejl_kode)}</td>
+            <td data-label="Oprettet">${relTid(r.oprettet)}</td>
+            <td class="act">
+              ${r.status === 'fejl' ? `<button class="btn btn-secondary btn-sm" onclick="gentagSkilt(${r.id}, '${esc(r.fejl_kode || '')}')">↻ Gentag</button>` : ''}
+              <button class="btn btn-ghost btn-sm" onclick="skilteLavIgen(${r.id})" title="Åbn med samme tekst og layout i Nyt skilt">⎘ Lav igen</button>
+              ${r.status === 'pending' ? `<button class="btn btn-danger btn-sm" onclick="annullerSkilt(${r.id})">Annuller</button>` : ''}
+            </td></tr>`;
+        }).join('');
+    koeOpdateret();
+  } catch (e) { tbody.innerHTML = `<tr><td colspan="7" class="tomt">Kunne ikke hente køen — <a href="#" onclick="hentSkilteKoe();return false;">prøv igen</a></td></tr>`; }
 }
 
 async function hentBatches() {
-  const tbody = document.getElementById('batch-tabel');
+  const tbody = $('batch-tabel');
   try {
     const rows = await api('/api/batches');
+    visGentagForbindelse(rows, 'gentag-forb-noegler');
     tbody.innerHTML = rows.length === 0
-      ? '<tr><td colspan="9" style="text-align:center;color:var(--text-secondary);">Ingen jobs i køen</td></tr>'
-      : rows.map(r => `
-        <tr>
-          <td>#${r.id}</td><td>${esc(r.navn)}</td><td>${esc(r.template_navn)}</td><td>${esc(r.maskine_navn)}</td>
-          <td>${esc(r.type_felt)}</td><td>${esc(r.system_nr)}</td><td>${r.loebe_fra}–${r.loebe_til}</td>
-          <td><span class="badge badge-${esc(r.status)}">${esc(r.status)}</span></td>
-          <td class="gap">
-            ${r.status==='pending'||r.status==='on-hold'?`<button class="btn btn-danger" onclick="annuller(${r.id})" style="padding:4px 10px;font-size:0.8rem">Annuller</button>`:''}
-            ${r.status==='on-hold'?`<button class="btn btn-primary" onclick="frigiv(${r.id})" style="padding:4px 10px;font-size:0.8rem">▶ Frigiv</button>`:''}
-          </td>
-        </tr>`).join('');
-  } catch(e) {
-    tbody.innerHTML = `<tr><td colspan="9" style="color:var(--accent);text-align:center;">Fejl ved indlæsning — <a href="#" onclick="hentBatches();return false;">prøv igen</a></td></tr>`;
-  }
+      ? `<tr><td colspan="10" class="tomt"><span class="stor">🔑</span>Ingen nøgle-jobs i køen.<br><button class="btn btn-secondary btn-sm mt" onclick="gaaTil('nyt-job')">Opret et nøgle-job</button></td></tr>`
+      : rows.map(r => `<tr>
+          <td class="m-skjul" data-label="ID">#${r.id}</td>
+          <td data-label="Navn"><b>${esc(r.navn)}</b></td>
+          <td class="m-skjul" data-label="Template">${esc(r.template_navn)}</td>
+          <td data-label="Maskine">${esc(r.maskine_navn)}</td>
+          <td class="m-skjul" data-label="Markering">${esc(r.type_felt) || '—'}</td>
+          <td class="m-skjul" data-label="System">${esc(r.system_nr) || '—'}</td>
+          <td data-label="Løbenr">${r.loebe_fra}–${r.loebe_til}</td>
+          <td data-label="Status">${statusBadge(r.status, r.fejl_besked, r.fejl_kode)}</td>
+          <td data-label="Oprettet">${relTid(r.oprettet)}</td>
+          <td class="act">
+            ${r.status === 'on-hold' ? `<button class="btn btn-primary btn-sm" onclick="frigiv(${r.id})">▶ Frigiv</button>` : ''}
+            ${r.status === 'fejl' ? `<button class="btn btn-secondary btn-sm" onclick="gentagBatch(${r.id}, '${esc(r.fejl_kode || '')}')">↻ Gentag</button>` : ''}
+            ${r.status === 'pending' || r.status === 'on-hold' ? `<button class="btn btn-danger btn-sm" onclick="annuller(${r.id})">Annuller</button>` : ''}
+          </td></tr>`).join('');
+    koeOpdateret();
+  } catch (e) { tbody.innerHTML = `<tr><td colspan="10" class="tomt">Kunne ikke hente køen — <a href="#" onclick="hentBatches();return false;">prøv igen</a></td></tr>`; }
 }
 
-async function frigiv(id) { await api(`/api/batches/${id}/frigiv`, 'POST'); hentBatches(); }
+async function frigiv(id) { await api(`/api/batches/${id}/frigiv`, 'POST'); toast('Plade frigivet til maskinen', 'ok'); hentBatches(); }
 async function annuller(id) { if (!confirm('Annuller dette job?')) return; await api(`/api/batches/${id}/annuller`, 'POST'); hentBatches(); }
+async function annullerSkilt(id) { if (!confirm('Annuller dette skilt?')) return; await api(`/api/skilte/${id}/annuller`, 'POST'); hentSkilteKoe(); }
 async function annullerAlle() {
-  if (!confirm('Annuller ALLE ventende og on-hold jobs?')) return;
+  if (!confirm('Annuller ALLE ventende og on-hold nøgle-jobs?')) return;
   const res = await api('/api/jobkoe/annuller-alle', 'POST');
-  if (res.ok) hentBatches();
+  if (res.ok) { toast(`${res.annulleret} jobs annulleret`, 'ok'); hentBatches(); }
+}
+
+const GENTAG_ADVARSEL = 'Send programmet til maskinen igen?\n\nHar maskinen allerede nået at gravere noget af dette job, bliver det graveret to gange. Tjek emnerne først.';
+// Fejlede jobbet fordi maskinen ikke kunne nås, er intet sendt → ingen risiko for dobbelt gravering, så ingen advarsel.
+async function gentagBatch(id, kode) {
+  if (kode !== 'forbindelse' && !confirm(GENTAG_ADVARSEL)) return;
+  const r = await api(`/api/batches/${id}/gentag`, 'POST');
+  toast(r.ok ? 'Sat tilbage i køen' : 'Kunne ikke gentage jobbet', r.ok ? 'ok' : 'fejl');
+  hentBatches();
+}
+async function gentagSkilt(id, kode) {
+  if (kode !== 'forbindelse' && !confirm(GENTAG_ADVARSEL)) return;
+  const r = await api(`/api/skilte/${id}/gentag`, 'POST');
+  toast(r.ok ? 'Sat tilbage i køen' : 'Kunne ikke gentage skiltet', r.ok ? 'ok' : 'fejl');
+  hentSkilteKoe();
 }
 
 async function rydOpJobkoe(type) {
-  if (!confirm('Slet alle færdige (done) og fejlede (fejl) jobs?')) return;
-  const res = await api(`/api/jobkoe/ryd-op`, 'POST', { type });
+  if (!confirm('Fjern alle sendte og fejlede jobs fra listen?')) return;
+  const res = await api('/api/jobkoe/ryd-op', 'POST', { type });
   if (res.ok) {
-    if (type === 'noegler') hentBatches();
-    else hentSkilteKoe();
-    alert(`Slettet ${res.slettet} jobs`);
+    toast(`${res.slettet} jobs fjernet`, 'ok');
+    if (type === 'noegler') hentBatches(); else hentSkilteKoe();
   }
 }
-
-// ─── Skilt visualisering ──────────────────────────────────────────────────────
-// Mapper Hershey font navne til CSS font-family approximationer
-function fontTilCSS(font) {
-  const m = {
-    'block':     'monospace',
-    // Sans
-    'futural':   'Arial, sans-serif',
-    'futuram':   'Arial, sans-serif',
-    // Roman / serif
-    'rowmans':   'Georgia, serif',
-    'rowmand':   'Georgia, serif',
-    'rowmant':   'Georgia, serif',
-    // Times
-    'timesr':    '"Times New Roman", serif',
-    'timesrb':   '"Times New Roman", serif',
-    'timesi':    'italic "Times New Roman", serif',
-    'timesib':   'italic "Times New Roman", serif',
-    // Script / kursiv
-    'scripts':   'cursive',
-    'scriptc':   'cursive',
-    'cursive':   'cursive',
-    // Gotisk / blackletter
-    'gothgrt':   '"Palatino Linotype", fantasy',
-    'gothgbt':   '"Palatino Linotype", fantasy',
-    'gothiceng': '"Palatino Linotype", fantasy',
-    'gothicger': '"Palatino Linotype", fantasy',
-    'gothicita': '"Palatino Linotype", fantasy',
-    // Gamle nøgler (bagudkompat i preview)
-    'romans':'Georgia, serif','romanc':'Georgia, serif','romand':'Georgia, serif',
-    'romant':'"Times New Roman", serif','italics':'italic Georgia, serif',
-    'italiccs':'italic Georgia, serif','italict':'italic "Times New Roman", serif',
-  };
-  return m[font] || 'monospace';
-}
-
-function fontErItalic(font) {
-  return font && (font.startsWith('italic') || font === 'timesi' || font === 'timesib' || font === 'cursive' || font === 'scripts' || font === 'scriptc');
-}
-
-function opdaterSkiltPreview() {
-  const svg = document.getElementById('skilt-preview');
-  if (!svg) return;
-
-  const bredde = +document.getElementById('skilt-bredde').value || 200;
-  const hoejde = +document.getElementById('skilt-hoejde').value || 100;
-  const mtIn = document.getElementById('skilt-margin-top').value;
-  const mbIn = document.getElementById('skilt-margin-bund').value;
-  const laIn = document.getElementById('skilt-linje-afstand').value;
-
-  const margin_top    = mtIn ? +mtIn : hoejde * 0.1;
-  const margin_bottom = mbIn ? +mbIn : hoejde * 0.1;
-  const linje_afstand = laIn ? +laIn : null;
-
-  const maxW = 400;
-  const maxH = 300;
-  const scale = Math.min(maxW / bredde, maxH / hoejde, 3);
-  const pad = 20;
-  const labelPad = 65;
-
-  const svgW = bredde * scale + pad * 2 + labelPad;
-  const svgH = hoejde * scale + pad * 2;
-
-  svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
-  svg.setAttribute('width', svgW);
-  svg.setAttribute('height', svgH);
-
-  const antal = skiltLinjer.length || 1;
-  const tilg  = hoejde - margin_top - margin_bottom;
-
-  let yPositions = [];
-  if (antal === 1) {
-    yPositions = [margin_top + tilg / 2];
-  } else if (linje_afstand !== null) {
-    for (let i = 0; i < antal; i++) yPositions.push(margin_top + i * linje_afstand);
-  } else {
-    const spacing = tilg / (antal - 1);
-    for (let i = 0; i < antal; i++) yPositions.push(margin_top + i * spacing);
-  }
-
-  const colors = ['#e74c3c','#3498db','#27ae60','#f39c12','#9b59b6','#1abc9c','#e67e22','#e91e63','#00bcd4','#8bc34a'];
-  let html = '';
-
-  html += `<rect x="${pad}" y="${pad}" width="${bredde*scale}" height="${hoejde*scale}" fill="#f8f8f8" stroke="#222" stroke-width="2.5" rx="3"/>`;
-  html += `<text x="${pad + bredde*scale/2}" y="${pad - 7}" font-size="11" fill="#555" text-anchor="middle" font-family="sans-serif">${bredde} × ${hoejde} mm</text>`;
-
-  const mt = margin_top * scale;
-  const mb = margin_bottom * scale;
-  html += `<rect x="${pad}" y="${pad}" width="${bredde*scale}" height="${mt}" fill="#3498db11"/>`;
-  html += `<line x1="${pad}" y1="${pad + mt}" x2="${pad + bredde*scale}" y2="${pad + mt}" stroke="#3498db" stroke-dasharray="4,3" stroke-width="1"/>`;
-  html += `<text x="${pad + 3}" y="${pad + mt - 3}" font-size="9" fill="#3498db" font-family="sans-serif">↑ ${margin_top}mm</text>`;
-  html += `<rect x="${pad}" y="${pad + hoejde*scale - mb}" width="${bredde*scale}" height="${mb}" fill="#3498db11"/>`;
-  html += `<line x1="${pad}" y1="${pad + hoejde*scale - mb}" x2="${pad + bredde*scale}" y2="${pad + hoejde*scale - mb}" stroke="#3498db" stroke-dasharray="4,3" stroke-width="1"/>`;
-  html += `<text x="${pad + 3}" y="${pad + hoejde*scale - mb + 10}" font-size="9" fill="#3498db" font-family="sans-serif">↓ ${margin_bottom}mm</text>`;
-
-  skiltLinjer.forEach((l, i) => {
-    const tekst = l.tekst.trim() || `Linje ${i+1}`;
-    const th    = Math.max((l.hoejde_mm || 10) * scale, 8);
-    // Manuel Y overskriver auto
-    const y     = l.y_mm != null ? l.y_mm * scale : yPositions[i] * scale;
-    const jus   = l.justering || 'venstre';
-    const color = colors[i % colors.length];
-    const cssFont = fontTilCSS(l.font || 'block');
-    const isItalic = fontErItalic(l.font);
-    const tw    = Math.min(tekst.length * th * (isItalic ? 0.52 : 0.58), bredde * scale * 0.9);
-
-    // Manuel X overskriver justering
-    let tx;
-    if (l.x_mm != null)           tx = pad + l.x_mm * scale;
-    else if (jus === 'center')     tx = pad + (bredde*scale - tw) / 2;
-    else if (jus === 'hoejre')     tx = pad + bredde*scale * 0.95 - tw;
-    else                           tx = pad + bredde*scale * 0.05;
-
-    // Vis manuel placering med stiplet linje
-    if (l.x_mm != null) html += `<line x1="${tx}" y1="${pad}" x2="${tx}" y2="${pad + hoejde*scale}" stroke="${color}" stroke-dasharray="3,4" stroke-width="1" opacity="0.4"/>`;
-    if (l.y_mm != null) html += `<line x1="${pad}" y1="${pad + y}" x2="${pad + bredde*scale}" y2="${pad + y}" stroke="${color}" stroke-dasharray="3,4" stroke-width="1" opacity="0.4"/>`;
-
-    html += `<rect x="${tx - 2}" y="${pad + y - th + 2}" width="${tw + 4}" height="${th}" fill="${color}25" rx="2"/>`;
-    html += `<text x="${tx}" y="${pad + y}" font-size="${th * 0.85}" fill="${color}" font-family="${cssFont}" font-style="${isItalic?'italic':'normal'}" font-weight="${['futuram','rowmand','rowmant','timesrb','timesib','gothgbt','gothicger','romant','italict'].includes(l.font)?'bold':'normal'}">${esc(tekst.substring(0, 30))}</text>`;
-    
-    // Label: vis manuel eller auto placering
-    const xLabel = l.x_mm != null ? `X:${l.x_mm}mm` : jus;
-    const yLabel = l.y_mm != null ? `Y:${l.y_mm}mm` : 'auto';
-    html += `<text x="${pad + bredde*scale + 6}" y="${pad + y}" font-size="9" fill="${color}" font-family="sans-serif">${esc(l.font||'block')} ${l.hoejde_mm||10}mm · ${esc(xLabel)} · ${yLabel}</text>`;
-
-    if (i < skiltLinjer.length - 1) {
-      const y2 = yPositions[i+1] * scale;
-      const mx = pad + bredde*scale - 10;
-      const afstand = linje_afstand !== null ? linje_afstand : Math.round((yPositions[i+1] - yPositions[i]) * 10) / 10;
-      html += `<line x1="${mx}" y1="${pad + y}" x2="${mx}" y2="${pad + y2}" stroke="#aaa" stroke-width="1.5"/>`;
-      html += `<text x="${mx - 24}" y="${pad + (y + y2)/2 + 4}" font-size="8" fill="#888" font-family="sans-serif">${afstand}mm</text>`;
-    }
-
-    const dotX = jus === 'center' ? pad + bredde*scale/2 : jus === 'hoejre' ? pad + bredde*scale - 3 : pad + 3;
-    html += `<circle cx="${dotX}" cy="${pad + y - th/2}" r="3" fill="${color}" opacity="0.6"/>`;
-  });
-
-  svg.innerHTML = html;
-}
-
-// ─── Skilte ───────────────────────────────────────────────────────────────────
-function skiftSkiltType() {
-  const type = document.querySelector('input[name="skilt-type"]:checked').value;
-  document.getElementById('skilt-template-sektion').style.display = type === 'template' ? 'block' : 'none';
-  document.getElementById('skilt-frit-sektion').style.display = type === 'frit' ? 'block' : 'none';
-  if (type === 'template' && document.getElementById('skilt-template-valg').value) {
-    loadSkiltTemplate();
-  }
-}
-
-function loadSkiltTemplate() {
-  const id = document.getElementById('skilt-template-valg').value;
-  if (!id) return;
-  const tmpl = skiltTemplates.find(t => t.id == id);
-  if (!tmpl) return;
-
-  document.getElementById('skilt-bredde').value = tmpl.skilt_bredde_mm;
-  document.getElementById('skilt-hoejde').value = tmpl.skilt_hoejde_mm;
-  if (tmpl.maskine_id) document.getElementById('skilt-maskine').value = tmpl.maskine_id;
-
-  document.getElementById('skilt-margin-top').value    = tmpl.margin_top_mm || '';
-  document.getElementById('skilt-margin-bund').value   = tmpl.margin_bottom_mm || '';
-  document.getElementById('skilt-linje-afstand').value = tmpl.linje_afstand_mm || '';
-
-  const config = JSON.parse(tmpl.linjer_config);
-  skiltLinjer = config.map(c => ({
-    tekst: '', justering: c.justering, hoejde_mm: c.hoejde_mm, font: c.font,
-    x_mm: c.x_mm != null ? c.x_mm : null,
-    y_mm: c.y_mm != null ? c.y_mm : null,
-  }));
-  tegnSkiltLinjer();
-}
-
-function initSkilt() {
-  skiltLinjer = [{ tekst: '', justering: 'center', hoejde_mm: 10, font: 'block', x_mm: null, y_mm: null }];
-  tegnSkiltLinjer();
-  setTimeout(opdaterSkiltPreview, 100);
-}
-
-function tegnSkiltLinjer() {
-  const container = document.getElementById('skilt-linjer-container');
-  container.innerHTML = skiltLinjer.map((l, i) => `
-    <div style="background:var(--bg-tertiary);padding:10px;border-radius:6px;margin-bottom:8px;">
-      <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;margin-bottom:6px;">
-        <div><label>Linje ${i+1} - Tekst</label><input value="${esc(l.tekst||'')}" onchange="skiltLinjer[${i}].tekst = this.value; opdaterSkiltPreview()"></div>
-        <div>
-          <label>Justering</label>
-          <select onchange="skiltLinjer[${i}].justering = this.value; opdaterSkiltPreview()">
-            <option value="venstre" ${l.justering==='venstre'?'selected':''}>Venstre</option>
-            <option value="center" ${l.justering==='center'?'selected':''}>Center</option>
-            <option value="hoejre" ${l.justering==='hoejre'?'selected':''}>Højre</option>
-          </select>
-        </div>
-        <div>
-          <label>Font</label>
-          <select onchange="skiltLinjer[${i}].font = this.value; opdaterSkiltPreview()">
-            ${Object.entries(fonts).map(([k,v]) => `<option value="${esc(k)}" ${l.font===k?'selected':''}>${esc(v)}</option>`).join('')}
-          </select>
-        </div>
-        <div><label>Højde (mm)</label><input type="number" value="${l.hoejde_mm||10}" step="0.5" onchange="skiltLinjer[${i}].hoejde_mm = +this.value; opdaterSkiltPreview()"></div>
-        <div><label>&nbsp;</label><button class="btn btn-danger" onclick="fjernLinje(${i})" style="padding:8px 12px;">✕</button></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:8px;">
-        <div>
-          <label style="color:#3498db;">X (mm) <span style="font-weight:normal;font-size:0.7rem;">tom=auto</span></label>
-          <input type="number" value="${l.x_mm!=null?l.x_mm:''}" step="0.5" placeholder="Auto (justering)" onchange="skiltLinjer[${i}].x_mm = this.value!==''?+this.value:null; opdaterSkiltPreview()">
-        </div>
-        <div>
-          <label style="color:#e74c3c;">Y (mm) <span style="font-weight:normal;font-size:0.7rem;">tom=auto</span></label>
-          <input type="number" value="${l.y_mm!=null?l.y_mm:''}" step="0.5" placeholder="Auto (fordelt)" onchange="skiltLinjer[${i}].y_mm = this.value!==''?+this.value:null; opdaterSkiltPreview()">
-        </div>
-        <div style="display:flex;align-items:flex-end;padding-bottom:2px;">
-          <span style="font-size:0.75rem;color:var(--text-secondary);">Tom = automatisk placering baseret på margener</span>
-        </div>
-      </div>
-    </div>
-  `).join('');
-  opdaterSkiltPreview();
-}
-
-function tilfoejLinje() {
-  if (skiltLinjer.length >= 10) { alert('Max 10 linjer tilladt'); return; }
-  skiltLinjer.push({ tekst: '', justering: 'center', hoejde_mm: 10, font: 'block', x_mm: null, y_mm: null });
-  tegnSkiltLinjer();
-}
-
-function fjernLinje(idx) {
-  skiltLinjer.splice(idx, 1);
-  if (skiltLinjer.length === 0) skiltLinjer.push({ tekst: '', justering: 'center', hoejde_mm: 10, font: 'block', x_mm: null, y_mm: null });
-  tegnSkiltLinjer();
-}
-
-async function sendSkilt() {
-  const status = document.getElementById('skilt-status');
-  status.textContent = 'Sender...';
-  
-  const type = document.querySelector('input[name="skilt-type"]:checked').value;
-  const template_id = type === 'template' ? document.getElementById('skilt-template-valg').value : null;
-  
-  const res = await api('/api/skilte', 'POST', {
-    maskine_id: document.getElementById('skilt-maskine').value,
-    template_id: template_id || null,
-    skilt_bredde_mm: +document.getElementById('skilt-bredde').value,
-    skilt_hoejde_mm: +document.getElementById('skilt-hoejde').value,
-    margin_top_mm: document.getElementById('skilt-margin-top').value ? +document.getElementById('skilt-margin-top').value : null,
-    margin_bottom_mm: document.getElementById('skilt-margin-bund').value ? +document.getElementById('skilt-margin-bund').value : null,
-    linje_afstand_mm: document.getElementById('skilt-linje-afstand').value ? +document.getElementById('skilt-linje-afstand').value : null,
-    linjer: skiltLinjer.filter(l => l.tekst.trim() !== ''),
-  });
-  
-  if (res.ok) {
-    status.textContent = '✓ Skilt sendt til jobkø';
-    status.style.color = 'var(--accent)';
-    hentSkilte();
-  } else {
-    status.textContent = '✗ Fejl ved oprettelse';
-    status.style.color = 'var(--accent)';
-  }
-}
-
-async function hentSkilte() {
-  const rows = await api('/api/skilte');
-  document.getElementById('skilte-tabel').innerHTML = rows.map(r => {
-    const linjer = JSON.parse(r.linjer_json);
-    return `<tr>
-      <td>#${r.id}</td><td>${esc(r.navn)}</td><td>${esc(r.template_navn) || '—'}</td>
-      <td>${r.skilt_bredde_mm}×${r.skilt_hoejde_mm} mm</td><td>${linjer.length} linjer</td>
-      <td>${esc(r.maskine_navn)}</td><td><span class="badge badge-${esc(r.status)}">${esc(r.status)}</span>${r.status==='fejl'&&r.fejl_besked?`<div style="color:var(--accent);font-size:0.7rem;margin-top:3px;max-width:220px;">${esc(r.fejl_besked)}</div>`:''}</td>
-      <td>${r.status==='pending'?`<button class="btn btn-danger" onclick="annullerSkilt(${r.id})" style="padding:4px 10px;font-size:0.8rem">Annuller</button>`:''}</td>
-    </tr>`;
-  }).join('');
-}
-
-async function annullerSkilt(id) { await api(`/api/skilte/${id}/annuller`, 'POST'); hentSkilte(); }
 
 // ─── Nøgle-Templates ──────────────────────────────────────────────────────────
 async function hentTemplates() {
   const rows = await api('/api/templates');
   templates = rows; // opdater state så redigerTemplate kan finde dem
-  document.getElementById('template-tabel').innerHTML = rows.map(r => {
-    const grid = JSON.parse(r.grid_json);
-    const slots = grid.slots ? grid.slots.length : 0;
+  document.getElementById('template-tabel').innerHTML = rows.length === 0
+    ? `<tr><td colspan="6" class="tomt">Ingen nøgle-templates endnu.</td></tr>`
+    : rows.map(r => {
+    let slots = 0;
+    try { const g = JSON.parse(r.grid_json); slots = g.slots ? g.slots.length : 0; } catch (e) {}
     return `<tr>
-      <td>#${r.id}</td>
-      <td class="clickable" onclick="redigerTemplate(${r.id})">${esc(r.navn)}</td>
-      <td>${esc(r.noejle_type)}</td><td>${r.zone_bredde_mm}×${r.zone_hoejde_mm} mm</td><td>${slots} slots</td>
-      <td class="gap">
-        <button class="btn btn-secondary" onclick="redigerTemplate(${r.id})" style="padding:4px 10px;font-size:0.8rem">Rediger</button>
-        <button class="btn btn-secondary" onclick="kopierTemplate(${r.id})" style="padding:4px 10px;font-size:0.8rem">Kopi</button>
-        <button class="btn btn-danger" onclick="sletTemplate(${r.id})" style="padding:4px 10px;font-size:0.8rem">Slet</button>
+      <td class="m-skjul" data-label="ID">#${r.id}</td>
+      <td data-label="Navn"><span class="clickable" onclick="redigerTemplate(${r.id})">${esc(r.navn)}</span></td>
+      <td data-label="Nøgletype">${esc(r.noejle_type)}</td>
+      <td data-label="Zone">${r.zone_bredde_mm}×${r.zone_hoejde_mm} mm</td>
+      <td data-label="Slots">${slots} slots</td>
+      <td class="act">
+        <button class="btn btn-secondary btn-sm" onclick="redigerTemplate(${r.id})">Rediger</button>
+        <button class="btn btn-ghost btn-sm" onclick="kopierTemplate(${r.id})">Kopi</button>
+        <button class="btn btn-danger btn-sm" onclick="sletTemplate(${r.id})">Slet</button>
       </td>
     </tr>`;
   }).join('');
@@ -821,14 +573,15 @@ async function gemTemplate() {
     }
     
     if (res.ok) { 
+      toast('Template gemt', 'ok');
       await initDropdowns();
-      hentTemplates(); 
+      hentTemplates();
       skjulTemplateForm();
     } else {
-      alert('Fejl ved gem: ' + (res.fejl || JSON.stringify(res)));
+      toast('Kunne ikke gemme: ' + (res.fejl || 'ukendt fejl'), 'fejl');
     }
   } catch(e) {
-    alert('JavaScript fejl i gemTemplate: ' + e.message + '\n\nElement: ' + e.stack);
+    toast('Fejl ved gem af template: ' + e.message, 'fejl');
   }
 }
 

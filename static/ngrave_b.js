@@ -75,67 +75,16 @@ function opdaterPreview() {
 }
 
 // ─── Skilt-Templates ──────────────────────────────────────────────────────────
-async function hentSkiltTemplates() {
-  const rows = await api('/api/skilt-templates');
-  skiltTemplates = rows; // opdater state så redigerSkiltTemplate kan finde dem
-  document.getElementById('skilt-template-tabel').innerHTML = rows.map(r => `<tr>
-    <td>#${r.id}</td>
-    <td class="clickable" onclick="redigerSkiltTemplate(${r.id})">${esc(r.navn)}</td>
-    <td>${r.skilt_bredde_mm}×${r.skilt_hoejde_mm} mm</td><td>${r.antal_linjer} linjer</td>
-    <td class="gap">
-      <button class="btn btn-secondary" onclick="redigerSkiltTemplate(${r.id})" style="padding:4px 10px;font-size:0.8rem">Rediger</button>
-      <button class="btn btn-danger" onclick="sletSkiltTemplate(${r.id})" style="padding:4px 10px;font-size:0.8rem">Slet</button>
-    </td>
-  </tr>`).join('');
-}
-
-function visNySkiltTemplate() {
-  redigerSkiltTemplateId = null;
-  linjeConfig = [];
-  document.getElementById('skilt-template-form-titel').textContent = 'Ny skilt-template';
-  document.getElementById('st-id').value = '';
-  document.getElementById('st-navn').value = '';
-  document.getElementById('st-beskrivelse').value = '';
-  document.getElementById('st-bredde').value = '200';
-  document.getElementById('st-hoejde').value = '100';
-  document.getElementById('st-antal').value = '2';
-  document.getElementById('st-maskine').value = '';
-  document.getElementById('st-margin-top').value = '';
-  document.getElementById('st-margin-bund').value = '';
-  document.getElementById('st-linje-afstand').value = '';
-  opdaterLinjeConfig();
-  document.getElementById('skilt-template-form').style.display = 'block';
-}
-
-async function redigerSkiltTemplate(id) {
-  redigerSkiltTemplateId = id;
-  // Hent altid frisk data fra API
-  const all = await api('/api/skilt-templates');
-  skiltTemplates = all;
-  const tmpl = skiltTemplates.find(t => t.id == id);
-  if (!tmpl) return;
-  
-  document.getElementById('skilt-template-form-titel').textContent = 'Rediger skilt-template';
-  document.getElementById('st-id').value = id;
-  document.getElementById('st-navn').value = tmpl.navn;
-  document.getElementById('st-beskrivelse').value = tmpl.beskrivelse || '';
-  document.getElementById('st-bredde').value = tmpl.skilt_bredde_mm;
-  document.getElementById('st-hoejde').value = tmpl.skilt_hoejde_mm;
-  document.getElementById('st-antal').value = tmpl.antal_linjer;
-  document.getElementById('st-maskine').value = tmpl.maskine_id || '';
-  document.getElementById('st-margin-top').value    = tmpl.margin_top_mm || '';
-  document.getElementById('st-margin-bund').value   = tmpl.margin_bottom_mm || '';
-  document.getElementById('st-linje-afstand').value = tmpl.linje_afstand_mm || '';
-  opdaterLinjeConfig(JSON.parse(tmpl.linjer_config));
-  document.getElementById('skilt-template-form').style.display = 'block';
-}
-
 async function testMaskine() {
   const id = document.getElementById('k-id').value;
   const status = document.getElementById('k-status');
   status.textContent = '⏳ Sender test-kommando...';
   status.style.color = 'var(--text-secondary)';
-  const res = await api(`/api/maskiner/${id}/test`, 'POST');
+  let res = await api(`/api/maskiner/${id}/test`, 'POST');
+  if (res.kraever_bekraeftelse) {            // maskinen har lige fået et program og graverer formentlig stadig
+    if (!confirm(res.fejl)) { status.textContent = ''; return; }
+    res = await api(`/api/maskiner/${id}/test`, 'POST', { tving: true });
+  }
   if (res.ok) {
     status.textContent = '✓ Maskinen kører til kalibreret position (0,0) med Z oppe';
     status.style.color = '#27ae60';
@@ -145,133 +94,58 @@ async function testMaskine() {
   }
 }
 
-function skjulSkiltTemplateForm() {
-  document.getElementById('skilt-template-form').style.display = 'none';
-  redigerSkiltTemplateId = null;
-}
-
-let linjeConfig = [];
-
-function opdaterLinjeConfig(existing = null) {
-  const antal = +document.getElementById('st-antal').value;
-  if (existing) {
-    linjeConfig = existing;
-  } else {
-    // Bevar eksisterende linjer, tilføj eller fjern efter behov
-    while (linjeConfig.length < antal) {
-      linjeConfig.push({ justering: 'center', hoejde_mm: 10, font: 'block' });
-    }
-    linjeConfig = linjeConfig.slice(0, antal);
-  }
-  tegnLinjeConfig();
-}
-
-function tegnLinjeConfig() {
-  const container = document.getElementById('st-linjer-container');
-  container.innerHTML = linjeConfig.map((l, i) => `
-    <div style="background:var(--bg-primary);padding:10px;border-radius:6px;margin-bottom:8px;border:1px solid var(--border);">
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;margin-bottom:6px;">
-        <div><label>Linje ${i+1}</label></div>
-        <div>
-          <label>Justering</label>
-          <select onchange="linjeConfig[${i}].justering = this.value">
-            <option value="venstre" ${l.justering==='venstre'?'selected':''}>Venstre</option>
-            <option value="center" ${l.justering==='center'?'selected':''}>Center</option>
-            <option value="hoejre" ${l.justering==='hoejre'?'selected':''}>Højre</option>
-          </select>
-        </div>
-        <div>
-          <label>Font</label>
-          <select onchange="linjeConfig[${i}].font = this.value">
-            ${Object.entries(fonts).map(([k,v]) => `<option value="${esc(k)}" ${l.font===k?'selected':''}>${esc(v)}</option>`).join('')}
-          </select>
-        </div>
-        <div>
-          <label>Højde (mm)</label>
-          <input type="number" value="${l.hoejde_mm||10}" step="0.5" onchange="linjeConfig[${i}].hoejde_mm = +this.value">
-        </div>
-        <div><label>&nbsp;</label><button class="btn btn-danger" onclick="fjernLinjeConfig(${i})" style="padding:8px 12px;">✕</button></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:8px;">
-        <div>
-          <label style="color:#3498db;">X (mm) <span style="font-weight:normal;font-size:0.7rem;">tom=auto</span></label>
-          <input type="number" value="${l.x_mm!=null?l.x_mm:''}" step="0.5" placeholder="Auto" onchange="linjeConfig[${i}].x_mm = this.value!==''?+this.value:null">
-        </div>
-        <div>
-          <label style="color:#e74c3c;">Y (mm) <span style="font-weight:normal;font-size:0.7rem;">tom=auto</span></label>
-          <input type="number" value="${l.y_mm!=null?l.y_mm:''}" step="0.5" placeholder="Auto" onchange="linjeConfig[${i}].y_mm = this.value!==''?+this.value:null">
-        </div>
-        <div style="display:flex;align-items:flex-end;padding-bottom:2px;">
-          <span style="font-size:0.75rem;color:var(--text-secondary);">Tom = auto placering fra margener</span>
-        </div>
-      </div>
-    </div>
-  `).join('') + `
-  <div class="mt gap">
-    <button class="btn btn-secondary" onclick="tilfoejLinjeConfig()">+ Tilføj linje</button>
-    <span style="color:var(--text-secondary);font-size:0.8rem;">(${linjeConfig.length} linjer)</span>
-  </div>`;
-}
-
-function tilfoejLinjeConfig() {
-  if (linjeConfig.length >= 10) return;
-  linjeConfig.push({ justering: 'center', hoejde_mm: 10, font: 'block', x_mm: null, y_mm: null });
-  document.getElementById('st-antal').value = linjeConfig.length;
-  tegnLinjeConfig();
-}
-
-function fjernLinjeConfig(idx) {
-  if (linjeConfig.length <= 1) return;
-  linjeConfig.splice(idx, 1);
-  document.getElementById('st-antal').value = linjeConfig.length;
-  tegnLinjeConfig();
-}
-
-async function gemSkiltTemplate() {
-  const mtVal = document.getElementById('st-margin-top').value;
-  const mbVal = document.getElementById('st-margin-bund').value;
-  const laVal = document.getElementById('st-linje-afstand').value;
-
-  const data = {
-    navn: document.getElementById('st-navn').value,
-    beskrivelse: document.getElementById('st-beskrivelse').value,
-    skilt_bredde_mm: +document.getElementById('st-bredde').value,
-    skilt_hoejde_mm: +document.getElementById('st-hoejde').value,
-    antal_linjer: +document.getElementById('st-antal').value,
-    linjer_config: linjeConfig,
-    margin_top_mm: mtVal ? +mtVal : null,
-    margin_bottom_mm: mbVal ? +mbVal : null,
-    linje_afstand_mm: laVal ? +laVal : null,
-    maskine_id: document.getElementById('st-maskine').value || null,
-  };
-  
-  let res;
-  if (redigerSkiltTemplateId) {
-    res = await api(`/api/skilt-templates/${redigerSkiltTemplateId}`, 'PUT', data);
-  } else {
-    res = await api('/api/skilt-templates', 'POST', data);
-  }
-  
-  if (res.ok) { 
-    await initDropdowns();
-    hentSkiltTemplates(); 
-    skjulSkiltTemplateForm(); 
-  }
-}
 
 // ─── Maskiner ──────────────────────────────────────────────────────────────────
 async function hentMaskiner() {
   const rows = await api('/api/maskiner');
-  document.getElementById('maskiner-tabel').innerHTML = rows.map(r => `<tr>
-    <td>#${r.id}</td><td>${esc(r.navn)}</td><td>${esc(r.model)}</td><td>${esc(r.protokol)}</td><td>${esc(r.ip)}</td><td>${r.port}</td>
-    <td>${r.offset_x || 0} mm</td><td>${r.offset_y || 0} mm</td><td>${r.offset_z || 0} mm</td>
-    <td>${r.spejl_y ? '✓' : '—'}</td>
-    <td class="gap">
-      <button class="btn btn-secondary" onclick="redigerMaskine(${r.id})" style="padding:4px 10px;font-size:0.8rem">Rediger</button>
-      <button class="btn btn-secondary" onclick="redigerKalibrering(${r.id})" style="padding:4px 10px;font-size:0.8rem">Kalibrér</button>
-      <button class="btn btn-danger" onclick="sletMaskine(${r.id})" style="padding:4px 10px;font-size:0.8rem">Slet</button>
+  document.getElementById('maskiner-tabel').innerHTML = rows.length === 0
+    ? `<tr><td colspan="12" class="tomt"><span class="stor">⚙</span>Ingen maskiner endnu.<br><button class="btn btn-secondary btn-sm mt" onclick="visNyMaskine()">+ Tilføj den første maskine</button></td></tr>`
+    : rows.map(r => `<tr>
+    <td data-label="ID">#${r.id}</td><td data-label="Navn"><b>${esc(r.navn)}</b></td><td data-label="Model">${esc(r.model)}</td>
+    <td data-label="Protokol">${esc(r.protokol)}</td><td data-label="IP">${esc(r.ip)}</td><td data-label="Port">${r.port}</td>
+    <td data-label="Forbindelse" id="ms-${r.id}"><span class="ms ukendt"><span class="dot"></span>Tjekker…</span></td>
+    <td data-label="Offset X">${r.offset_x || 0} mm</td><td data-label="Offset Y">${r.offset_y || 0} mm</td><td data-label="Offset Z">${r.offset_z || 0} mm</td>
+    <td data-label="Spejl Y">${r.spejl_y ? '✓' : '—'}</td>
+    <td class="act">
+      <button class="btn btn-secondary btn-sm" onclick="pingMaskine(${r.id})" title="Opretter og lukker en forbindelse — sender ingen data">Tjek nu</button>
+      <button class="btn btn-secondary btn-sm" onclick="redigerMaskine(${r.id})">Rediger</button>
+      <button class="btn btn-secondary btn-sm" onclick="redigerKalibrering(${r.id})">Kalibrér</button>
+      <button class="btn btn-danger btn-sm" onclick="sletMaskine(${r.id})">Slet</button>
     </td>
   </tr>`).join('');
+  hentMaskinStatus();
+}
+
+const MS_TEKST = { online: 'Online', offline: 'Svarer ikke', afviser: 'Afviser forbindelsen', ukendt: 'Ikke tjekket endnu' };
+async function hentMaskinStatus() {
+  let liste;
+  try { liste = await api('/api/maskiner/status'); } catch (e) { return; }
+  liste.forEach(m => {
+    const el = document.getElementById('ms-' + m.id);
+    if (!el) return;
+    maskinStatus[m.id] = m.status;
+    let sub = '';
+    if (m.koe && m.koe.running) sub = 'Sender nu';
+    else if (m.graverer_formentlig) sub = `Program sendt for ${sekTekst(m.sendt_sek_siden)} — graverer formentlig (tjekker ikke forbindelsen imens)`;
+    else if (m.status === 'online') sub = `svarede ${sekTekst(m.tjekket_sek_siden)}${m.ms != null ? ' · ' + m.ms + ' ms' : ''}`;
+    else if (m.status === 'ukendt') sub = 'Første tjek kommer om lidt';
+    else sub = `${esc(m.fejl || '')}${m.set_online_sek_siden != null ? ' · sidst online ' + sekTekst(m.set_online_sek_siden) : ''}`;
+    if (m.koe && m.koe.pending) sub += `${sub ? ' · ' : ''}${m.koe.pending} i kø`;
+    el.innerHTML = `<span class="ms ${esc(m.status)}"><span class="dot"></span>${esc(MS_TEKST[m.status] || m.status)}</span><span class="ms-sub">${sub}</span>`;
+  });
+  opdaterMaskineAdvarsler();
+}
+
+async function pingMaskine(id) {
+  const el = document.getElementById('ms-' + id);
+  if (el) el.innerHTML = '<span class="ms ukendt"><span class="dot"></span>Tjekker…</span>';
+  try {
+    const r = await api(`/api/maskiner/${id}/ping`, 'POST');
+    if (r.status === 'online') toast(`Maskinen svarer (${r.ms} ms)`, 'ok');
+    else if (r.status === 'optaget') toast(r.besked, 'info');
+    else toast(r.fejl || 'Maskinen svarer ikke', 'fejl');
+  } catch (e) { toast('Kunne ikke tjekke maskinen', 'fejl'); }
+  hentMaskinStatus();
 }
 
 function visNyMaskine() {
@@ -468,8 +342,10 @@ async function gemKalibrering() {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 (async () => {
-  await initDropdowns();
+  byggNav();
+  maalHeader();
+  try { await initDropdowns(); } catch (e) { toast('Kunne ikke hente data fra serveren', 'fejl'); }
   opdaterJobFelter();
-  initSkilt();
-  hentBatches();
+  gaaTil(location.hash.slice(1) || 'nyt-job', { noHash: true, noScroll: true });
+  opdaterStatus();
 })();

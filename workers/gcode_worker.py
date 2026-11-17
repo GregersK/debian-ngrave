@@ -1,6 +1,7 @@
 """S5 Worker - G-code over TCP med block font og prox"""
 import socket, time
 from .font_manager import get_strokes
+from .forbindelse import aabn
 
 MM = 1 / 25.4
 
@@ -35,9 +36,9 @@ def streger_til_gcode(strokes, x_offset, y, feed, feed_z, z_up, prox_offset):
     return lines
 
 def send(gcode, ip, port):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    # aabn() kaster ForbindelsesFejl hvis vi ikke kommer igennem — dvs. intet er sendt.
+    with aabn(ip, port) as s:
         s.settimeout(15)
-        s.connect((ip, port))
         s.sendall(gcode.encode("ascii", errors="ignore"))
         time.sleep(1.0)
         try: return s.recv(4096)
